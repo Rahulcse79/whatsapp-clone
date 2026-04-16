@@ -22,9 +22,15 @@ listeners:
     type: http
     x_forwarded: true
 database:
-  name: sqlite3
+  name: psycopg2
   args:
-    database: /data/homeserver.db
+    user: synapse_user
+    password: synapse_pass
+    database: synapse
+    host: localhost
+    port: 5432
+    cp_min: 5
+    cp_max: 10
 log_config: "/data/localhost.log.config"
 media_store_path: /data/media_store
 registration_shared_secret: "1j;9LkiUO8Y#KF+Szrb#fgflrVjIsMSgvAwR10*,-1j35^OPV^"
@@ -35,7 +41,7 @@ signing_key_path: "/data/localhost.signing.key"
 trusted_key_servers:
   - server_name: "matrix.org"
 turn_uris:
-  - "turn:192.168.1.199:3478?transport=udp"
+  - "turn:192.168.103.24:3478?transport=udp"
 
 turn_username: "test"
 turn_password: "test123"

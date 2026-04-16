@@ -38,8 +38,9 @@ Please update your git remote to pull from element-hq/synapse:
 
    git remote set-url origin git@github.com:element-hq/synapse.git
 """
+# Keep upstream migration notice visible for developers, but do not hard-exit in
+# this local fork where we need to run the server.
 print(announcement)
-sys.exit(1)
 
 # Check that we're not running on an unsupported Python version.
 #
