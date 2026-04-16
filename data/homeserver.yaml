@@ -10,17 +10,28 @@
 # each option, go to docs/usage/configuration/config_documentation.md or
 # https://element-hq.github.io/synapse/latest/usage/configuration/config_documentation.html
 server_name: "localhost"
-pid_file: /data/homeserver.pid
+public_baseurl: "https://192.168.1.199:8008/"
+serve_server_wellknown: true
+pid_file: /Users/rahulsingh/Documents/GitHub/whatsapp-clone/data/homeserver.pid
 listeners:
   - port: 8008
+    bind_addresses: ['0.0.0.0']
     resources:
     - compress: false
       names:
       - client
       - federation
-    tls: false
+    tls: true
     type: http
     x_forwarded: true
+  - port: 8088
+    bind_addresses: ['0.0.0.0']
+    resources:
+    - compress: false
+      names:
+      - client
+    tls: false
+    type: http
 database:
   name: psycopg2
   args:
@@ -31,21 +42,30 @@ database:
     port: 5432
     cp_min: 5
     cp_max: 10
-log_config: "/data/localhost.log.config"
-media_store_path: /data/media_store
+log_config: "/Users/rahulsingh/Documents/GitHub/whatsapp-clone/data/localhost.log.config"
+media_store_path: /Users/rahulsingh/Documents/GitHub/whatsapp-clone/data/media_store
 registration_shared_secret: "1j;9LkiUO8Y#KF+Szrb#fgflrVjIsMSgvAwR10*,-1j35^OPV^"
 report_stats: false
 macaroon_secret_key: "p7l&:sb&LsU^#S5H6ldU:O00DdniuSpP5h,tysV@^~N.XWW@;v"
 form_secret: "9+rWa@K~Vj=mPX9P,#Lxs,~Nd43DCf*,K+1OzX&Km5bAQxWWG0"
-signing_key_path: "/data/localhost.signing.key"
+signing_key_path: "/Users/rahulsingh/Documents/GitHub/whatsapp-clone/data/localhost.signing.key"
+tls_certificate_path: "/Users/rahulsingh/Documents/GitHub/whatsapp-clone/data/192.168.1.199+2.pem"
+tls_private_key_path: "/Users/rahulsingh/Documents/GitHub/whatsapp-clone/data/192.168.1.199+2-key.pem"
 trusted_key_servers:
   - server_name: "matrix.org"
+suppress_key_server_warning: true
 turn_uris:
-  - "turn:192.168.103.24:3478?transport=udp"
+  - "turn:192.168.1.199:3478?transport=udp"
 
 turn_username: "test"
 turn_password: "test123"
 
 turn_allow_guests: true
+
+enable_registration: true
+enable_registration_without_verification: true
+
+experimental_features:
+  msc3575_enabled: true
 
 # vim:ft=yaml
