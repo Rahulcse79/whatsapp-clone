@@ -60,7 +60,6 @@ class PeriodicallyFlushingMemoryHandler(MemoryHandler):
         else:
             reactor_to_use = reactor
 
-        # call our hook when the reactor start up
         reactor_to_use.callWhenRunning(on_reactor_running)
 
     def shouldFlush(self, record: LogRecord) -> bool:
@@ -80,7 +79,6 @@ class PeriodicallyFlushingMemoryHandler(MemoryHandler):
         """
 
         while self._active:
-            # flush is thread-safe; it acquires and releases the lock internally
             self.flush()
             time.sleep(self._flush_period)
 

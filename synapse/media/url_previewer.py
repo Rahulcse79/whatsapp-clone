@@ -1,17 +1,3 @@
-# Copyright 2016 OpenMarket Ltd
-# Copyright 2020-2023 The Matrix.org Foundation C.I.C.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 import datetime
 import errno
 import fnmatch
@@ -75,26 +61,15 @@ class MediaInfo:
     Information parsed from downloading media being previewed.
     """
 
-    # The Content-Type header of the response.
     media_type: str
-    # The length (in bytes) of the downloaded media.
     media_length: int
-    # The media filename, according to the server. This is parsed from the
-    # returned headers, if possible.
     download_name: Optional[str]
-    # The time of the preview.
     created_ts_ms: int
-    # Information from the media storage provider about where the file is stored
-    # on disk.
     filesystem_id: str
     filename: str
-    # The URI being previewed.
     uri: str
-    # The HTTP response code.
     response_code: int
-    # The timestamp (in milliseconds) of when this preview expires.
     expires: int
-    # The ETag header of the response.
     etag: Optional[str]
 
 
@@ -177,9 +152,6 @@ class UrlPreviewer:
 
         self._oembed = OEmbedProvider(hs)
 
-        # We run the background jobs if we're the instance specified (or no
-        # instance is specified, where we assume there is only one instance
-        # serving media).
         instance_running_jobs = hs.config.media.media_instance_running_background_jobs
         self._worker_run_media_background_jobs = (
             instance_running_jobs is None
@@ -189,12 +161,9 @@ class UrlPreviewer:
         self.url_preview_url_blocklist = hs.config.media.url_preview_url_blocklist
         self.url_preview_accept_language = hs.config.media.url_preview_accept_language
 
-        # memory cache mapping urls to an ObservableDeferred returning
-        # JSON-encoded OG metadata
         self._cache: ExpiringCache[str, ObservableDeferred] = ExpiringCache(
             cache_name="url_previews",
             clock=self.clock,
-            # don't spider URLs more often than once an hour
             expiry_ms=ONE_HOUR,
         )
 
@@ -204,14 +173,6 @@ class UrlPreviewer:
             )
 
     async def preview(self, url: str, user: UserID, ts: int) -> bytes:
-        # the in-memory cache:
-        # * ensures that only one request to a URL is active at a time
-        # * takes load off the DB for the thundering herds
-        # * also caches any failures (unlike the DB) so we don't keep
-        #   requesting the same endpoint
-        #
-        # Note that autodiscovered oEmbed URLs and pre-caching of images
-        # are not captured in the in-memory cache.
 
         observable = self._cache.get(url)
 
@@ -235,21 +196,16 @@ class UrlPreviewer:
         Returns:
             json-encoded og data
         """
-        # check the URL cache in the DB (which will also provide us with
-        # historical previews, if we have any)
         cache_result = await self.store.get_url_cache(url, ts)
         if (
             cache_result
             and cache_result.expires_ts > ts
             and cache_result.response_code // 100 == 2
         ):
-            # It may be stored as text in the database, not as bytes (such as
-            # PostgreSQL). If so, encode it back before handing it on.
             if isinstance(cache_result.og, str):
                 return cache_result.og.encode("utf8")
             return cache_result.og
 
-        # If this URL can be accessed via an allowed oEmbed, use that instead.
         url_to_download = url
         oembed_url = self._oembed.get_oembed_url(url)
         if oembed_url:
@@ -259,7 +215,6 @@ class UrlPreviewer:
 
         logger.debug("got media_info of '%s'", media_info)
 
-        # The number of milliseconds that the response should be considered valid.
         expiration_ms = media_info.expires
         author_name: Optional[str] = None
 
@@ -282,27 +237,21 @@ class UrlPreviewer:
             else:
                 logger.warning("Couldn't get dims for %s" % url)
 
-            # define our OG response for this media
         elif _is_html(media_info.media_type):
-            # TODO: somehow stop a big HTML tree from exploding synapse's RAM
 
             with open(media_info.filename, "rb") as file:
                 body = file.read()
 
             tree = decode_body(body, media_info.uri, media_info.media_type)
             if tree is not None:
-                # Check if this HTML document points to oEmbed information and
-                # defer to that.
                 oembed_url = self._oembed.autodiscover_from_html(tree)
                 og_from_oembed: JsonDict = {}
-                # Only download to the oEmbed URL if it is allowed.
                 if oembed_url:
                     try:
                         oembed_info = await self._handle_url(
                             oembed_url, user, allow_data_urls=True
                         )
                     except Exception as e:
-                        # Fetching the oEmbed info failed, don't block the entire URL preview.
                         logger.warning(
                             "oEmbed fetch failed during URL preview: %s errored with %s",
                             oembed_url,
@@ -317,13 +266,8 @@ class UrlPreviewer:
                             url, oembed_info, expiration_ms
                         )
 
-                # Parse Open Graph information from the HTML in case the oEmbed
-                # response failed or is incomplete.
                 og_from_html = parse_html_to_open_graph(tree)
 
-                # Compile the Open Graph response by using the scraped
-                # information from the HTML and overlaying any information
-                # from the oEmbed response.
                 og = {**og_from_html, **og_from_oembed}
 
                 await self._precache_image_url(user, media_info, og)
@@ -331,7 +275,6 @@ class UrlPreviewer:
                 og = {}
 
         elif oembed_url:
-            # Handle the oEmbed information.
             og, author_name, expiration_ms = await self._handle_oembed_response(
                 url, media_info, expiration_ms
             )
@@ -341,12 +284,9 @@ class UrlPreviewer:
             logger.warning("Failed to find any OG data in %s", url)
             og = {}
 
-        # If we don't have a title but we have author_name, copy it as
-        # title
         if not og.get("og:title") and author_name:
             og["og:title"] = author_name
 
-        # filter out any stupidly long values
         keys_to_remove = []
         for k, v in og.items():
             # values can be numeric as well as strings, hence the cast to str
@@ -362,10 +302,8 @@ class UrlPreviewer:
 
         jsonog = json_encoder.encode(og)
 
-        # Cap the amount of time to consider a response valid.
         expiration_ms = min(expiration_ms, ONE_DAY)
 
-        # store OG in history-aware DB cache
         await self.store.store_url_cache(
             url,
             media_info.response_code,
@@ -407,13 +345,8 @@ class UrlPreviewer:
                     match = False
                     break
 
-                # Some attributes might not be parsed as strings by urlsplit (such as the
-                # port, which is parsed as an int). Because we use match functions that
-                # expect strings, we want to make sure that's what we give them.
                 value_str = str(value)
 
-                # Check the value against the pattern as either a regular expression or
-                # a glob. If it doesn't match, the entry doesn't match.
                 if pattern.startswith("^"):
                     if not re.match(pattern, value_str):
                         match = False
@@ -423,12 +356,10 @@ class UrlPreviewer:
                         match = False
                         break
 
-            # All fields matched, return true (the URL is blocked).
             if match:
                 logger.warning("URL %s blocked by entry %s", url, entry)
                 return match
 
-        # No matches were found, the URL is allowed.
         return False
 
     async def _download_url(self, url: str, output_stream: BinaryIO) -> DownloadResult:
@@ -454,9 +385,6 @@ class UrlPreviewer:
                 max_size=self.max_spider_size,
                 headers={
                     b"Accept-Language": self.url_preview_accept_language,
-                    # Use a custom user agent for the preview because some sites will only return
-                    # Open Graph metadata to crawler user agents. Omit the Synapse version
-                    # string to avoid leaking information.
                     b"User-Agent": [
                         "Synapse (bot; +https://github.com/matrix-org/synapse)"
                     ],
@@ -464,21 +392,14 @@ class UrlPreviewer:
                 is_allowed_content_type=_is_previewable,
             )
         except SynapseError:
-            # Pass SynapseErrors through directly, so that the servlet
-            # handler will return a SynapseError to the client instead of
-            # blank data or a 500.
             raise
         except DNSLookupError:
-            # DNS lookup returned no results
-            # Note: This will also be the case if one of the resolved IP
-            # addresses is blocked.
             raise SynapseError(
                 502,
                 "DNS resolution failure during URL preview generation",
                 Codes.UNKNOWN,
             )
         except Exception as e:
-            # FIXME: pass through 404s and other error messages nicely
             logger.warning("Error downloading %s: %r", url, e)
 
             raise SynapseError(
@@ -495,8 +416,6 @@ class UrlPreviewer:
 
         download_name = get_filename_from_headers(headers)
 
-        # FIXME: we should calculate a proper expiration based on the
-        # Cache-Control and Expire headers.  But for now, assume 1 hour.
         expires = ONE_HOUR
         etag = headers[b"ETag"][0].decode("ascii") if b"ETag" in headers else None
 
@@ -537,15 +456,10 @@ class UrlPreviewer:
             )
 
         return DownloadResult(
-            # Read back the length that has been written.
             length=output_stream.tell(),
             uri=url,
-            # If it was parsed, consider this a 200 OK.
             response_code=200,
-            # urlopen shoves the media-type from the data URL into the content type
-            # header object.
             media_type=url_info.headers.get_content_type(),
-            # Some features are not supported by data: URLs.
             download_name=None,
             expires=ONE_HOUR,
             etag=None,
@@ -577,9 +491,6 @@ class UrlPreviewer:
                 403, "URL blocked by url pattern blocklist entry", Codes.UNKNOWN
             )
 
-        # TODO: we should probably honour robots.txt... except in practice
-        # we're most likely being explicitly triggered by a human rather than a
-        # bot, so are we really a robot?
 
         file_id = datetime.date.today().isoformat() + "_" + random_string(16)
 
@@ -613,9 +524,6 @@ class UrlPreviewer:
 
         except Exception as e:
             logger.error("Error handling downloaded %s: %r", url, e)
-            # TODO: we really ought to delete the downloaded file in this
-            # case, since we won't have recorded it in the db, and will
-            # therefore not expire it.
             raise
 
         return MediaInfo(
@@ -642,28 +550,20 @@ class UrlPreviewer:
             media_info: The media being previewed.
             og: The Open Graph dictionary. This is modified with image information.
         """
-        # If there's no image or it is blank, there's nothing to do.
         if "og:image" not in og:
             return
 
-        # Remove the raw image URL, this will be replaced with an MXC URL, if successful.
         image_url = og.pop("og:image")
         if not image_url:
             return
 
-        # The image URL from the HTML might be relative to the previewed page,
-        # convert it to a URL which can be requested directly.
         url_parts = urlparse(image_url)
         if url_parts.scheme != "data":
             image_url = urljoin(media_info.uri, image_url)
 
-        # FIXME: it might be cleaner to use the same flow as the main /preview_url
-        # request itself and benefit from the same caching etc.  But for now we
-        # just rely on the caching on the master request to speed things up.
         try:
             image_info = await self._handle_url(image_url, user, allow_data_urls=True)
         except Exception as e:
-            # Pre-caching the image failed, don't block the entire URL preview.
             logger.warning(
                 "Pre-caching image failed during URL preview: %s errored with %s",
                 image_url,
@@ -672,7 +572,6 @@ class UrlPreviewer:
             return
 
         if _is_media(image_info.media_type):
-            # TODO: make sure we don't choke on white-on-transparent images
             file_id = image_info.filesystem_id
             dims = await self.media_repo._generate_thumbnails(
                 None, file_id, file_id, image_info.media_type, url_cache=True
@@ -705,7 +604,6 @@ class UrlPreviewer:
                 The author name if it could be retrieved from oEmbed.
                 The (possibly updated) length of time, in milliseconds, the media is valid for.
         """
-        # If JSON was not returned, there's nothing to do.
         if not _is_json(media_info.media_type):
             return {}, None, expiration_ms
 
@@ -715,7 +613,6 @@ class UrlPreviewer:
         oembed_response = self._oembed.parse_oembed_response(url, body)
         open_graph_result = oembed_response.open_graph_result
 
-        # Use the cache age from the oEmbed result, if one was given.
         if open_graph_result and oembed_response.cache_age is not None:
             expiration_ms = oembed_response.cache_age
 
@@ -746,10 +643,8 @@ class UrlPreviewer:
                 try:
                     os.rmdir(dir)
                 except FileNotFoundError:
-                    # Already deleted, continue with deleting the rest
                     pass
                 except OSError as e:
-                    # Failed, skip deleting the rest of the parent dirs
                     if e.errno != errno.ENOTEMPTY:
                         logger.warning(
                             "Failed to remove media directory while clearing url preview cache: %r: %s",
@@ -758,7 +653,6 @@ class UrlPreviewer:
                         )
                     break
 
-        # First we delete expired url cache entries
         media_ids = await self.store.get_expired_url_cache(now)
 
         removed_media = []
@@ -790,10 +684,6 @@ class UrlPreviewer:
         else:
             logger.debug("No entries removed from url preview cache")
 
-        # Now we delete old images associated with the url cache.
-        # These may be cached for a bit on the client (i.e., they
-        # may have a room open with a preview url thing open).
-        # So we wait a couple of days before deleting, just in case.
         expire_before = now - IMAGE_CACHE_EXPIRY_MS
         media_ids = await self.store.get_url_cache_media_before(expire_before)
 
@@ -803,7 +693,7 @@ class UrlPreviewer:
             try:
                 os.remove(fname)
             except FileNotFoundError:
-                pass  # If the path doesn't exist, meh
+                pass  
             except OSError as e:
                 logger.warning(
                     "Failed to remove media from url preview cache: %r: %s", media_id, e
@@ -817,7 +707,7 @@ class UrlPreviewer:
             try:
                 shutil.rmtree(thumbnail_dir)
             except FileNotFoundError:
-                pass  # If the path doesn't exist, meh
+                pass  
             except OSError as e:
                 logger.warning(
                     "Failed to remove media from url preview cache: %r: %s", media_id, e
@@ -827,8 +717,6 @@ class UrlPreviewer:
             removed_media.append(media_id)
 
             dirs = self.filepaths.url_cache_thumbnail_dirs_to_delete(media_id)
-            # Note that one of the directories to be deleted has already been
-            # removed by the `rmtree` above.
             try_remove_parent_dirs(dirs)
 
         await self.store.delete_url_cache_media(removed_media)

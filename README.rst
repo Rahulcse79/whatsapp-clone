@@ -15,6 +15,10 @@
 
    <p><em>Real-time chat · End-to-end encryption · Media sharing · Presence & receipts · Built for scale</em></p>
 
+   <br>
+   <img src="docs/images/home.png" alt="WhatsApp Clone Server Running" width="700">
+   <br><br>
+
    <hr>
    </div>
 

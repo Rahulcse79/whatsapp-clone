@@ -1,16 +1,3 @@
-# Copyright 2019 The Matrix.org Foundation C.I.C.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 import logging
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, List, Optional, Tuple
 
@@ -61,8 +48,6 @@ def load_legacy_third_party_event_rules(hs: "HomeServer") -> None:
     api = hs.get_module_api()
     third_party_rules = module(config=config, module_api=api)
 
-    # The known hooks. If a module implements a method which name appears in this set,
-    # we'll want to register it.
     third_party_event_rules_methods = {
         "check_event_allowed",
         "on_create_room",
@@ -71,25 +56,14 @@ def load_legacy_third_party_event_rules(hs: "HomeServer") -> None:
     }
 
     def async_wrapper(f: Optional[Callable]) -> Optional[Callable[..., Awaitable]]:
-        # f might be None if the callback isn't implemented by the module. In this
-        # case we don't want to register a callback at all so we return None.
         if f is None:
             return None
 
-        # We return a separate wrapper for these methods because, in order to wrap them
-        # correctly, we need to await its result. Therefore it doesn't make a lot of
-        # sense to make it go through the run() wrapper.
         if f.__name__ == "check_event_allowed":
-            # We need to wrap check_event_allowed because its old form would return either
-            # a boolean or a dict, but now we want to return the dict separately from the
-            # boolean.
             async def wrap_check_event_allowed(
                 event: EventBase,
                 state_events: StateMap[EventBase],
             ) -> Tuple[bool, Optional[dict]]:
-                # Assertion required because mypy can't prove we won't change
-                # `f` back to `None`. See
-                # https://mypy.readthedocs.io/en/latest/common_issues.html#narrowing-and-inner-functions
                 assert f is not None
 
                 res = await f(event, state_events)
@@ -101,15 +75,9 @@ def load_legacy_third_party_event_rules(hs: "HomeServer") -> None:
             return wrap_check_event_allowed
 
         if f.__name__ == "on_create_room":
-            # We need to wrap on_create_room because its old form would return a boolean
-            # if the room creation is denied, but now we just want it to raise an
-            # exception.
             async def wrap_on_create_room(
                 requester: Requester, config: dict, is_requester_admin: bool
             ) -> None:
-                # Assertion required because mypy can't prove we won't change
-                # `f` back to `None`. See
-                # https://mypy.readthedocs.io/en/latest/common_issues.html#narrowing-and-inner-functions
                 assert f is not None
 
                 res = await f(requester, config, is_requester_admin)
@@ -122,16 +90,12 @@ def load_legacy_third_party_event_rules(hs: "HomeServer") -> None:
             return wrap_on_create_room
 
         def run(*args: Any, **kwargs: Any) -> Awaitable:
-            # Assertion required because mypy can't prove we won't change  `f`
-            # back to `None`. See
-            # https://mypy.readthedocs.io/en/latest/common_issues.html#narrowing-and-inner-functions
             assert f is not None
 
             return maybe_awaitable(f(*args, **kwargs))
 
         return run
 
-    # Register the hooks through the module API.
     hooks = {
         hook: async_wrapper(getattr(third_party_rules, hook, None))
         for hook in third_party_event_rules_methods
@@ -271,19 +235,14 @@ class ThirdPartyEventRulesModuleApiCallbacks:
         Returns:
             The result from the ThirdPartyRules module, as above.
         """
-        # Bail out early without hitting the store if we don't have any callbacks to run.
         if len(self._check_event_allowed_callbacks) == 0:
             return True, None
 
         prev_state_ids = await context.get_prev_state_ids()
 
-        # Retrieve the state events from the database.
         events = await self.store.get_events(prev_state_ids.values())
         state_events = {(ev.type, ev.state_key): ev for ev in events.values()}
 
-        # Ensure that the event is frozen, to make sure that the module is not tempted
-        # to try to modify it. Any attempt to modify it at this point will invalidate
-        # the hashes and signatures.
         event.freeze()
 
         for callback in self._check_event_allowed_callbacks:
@@ -294,22 +253,12 @@ class ThirdPartyEventRulesModuleApiCallbacks:
             except CancelledError:
                 raise
             except SynapseError as e:
-                # FIXME: Being able to throw SynapseErrors is relied upon by
-                # some modules. PR https://github.com/matrix-org/synapse/pull/10386
-                # accidentally broke this ability.
-                # That said, we aren't keen on exposing this implementation detail
-                # to modules and we should one day have a proper way to do what
-                # is wanted.
-                # This module callback needs a rework so that hacks such as
-                # this one are not necessary.
                 raise e
             except Exception:
                 raise ModuleFailedException(
                     "Failed to run `check_event_allowed` module API callback"
                 )
 
-            # Return if the event shouldn't be allowed or if the module came up with a
-            # replacement dict for the event.
             if res is False:
                 return res, None
             elif isinstance(replacement_data, dict):
@@ -332,9 +281,6 @@ class ThirdPartyEventRulesModuleApiCallbacks:
             try:
                 await callback(requester, config, is_requester_admin)
             except Exception as e:
-                # Don't silence the errors raised by this callback since we expect it to
-                # raise an exception to deny the creation of the room; instead make sure
-                # it's a SynapseError we can send to clients.
                 if not isinstance(e, SynapseError):
                     e = SynapseError(
                         403, "Room creation forbidden with these parameters"
@@ -355,7 +301,6 @@ class ThirdPartyEventRulesModuleApiCallbacks:
         Returns:
             True if the 3PID can be invited, False if not.
         """
-        # Bail out early without hitting the store if we don't have any callbacks to run.
         if len(self._check_threepid_can_be_invited_callbacks) == 0:
             return True
 
@@ -388,7 +333,6 @@ class ThirdPartyEventRulesModuleApiCallbacks:
         Returns:
             True if the room's visibility can be modified, False if not.
         """
-        # Bail out early without hitting the store if we don't have any callback
         if len(self._check_visibility_can_be_modified_callbacks) == 0:
             return True
 
@@ -415,7 +359,6 @@ class ThirdPartyEventRulesModuleApiCallbacks:
         Args:
             event_id: The ID of the event.
         """
-        # Bail out early without hitting the store if we don't have any callbacks
         if len(self._on_new_event_callbacks) == 0:
             return
 

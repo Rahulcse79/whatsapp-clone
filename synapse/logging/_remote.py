@@ -1,17 +1,3 @@
-# Copyright 2020 The Matrix.org Foundation C.I.C.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 import logging
 import sys
 import traceback
@@ -55,8 +41,6 @@ class LogProducer:
         format: A callable to format the log record to a string.
     """
 
-    # This is essentially ITCPTransport, but that is missing certain fields
-    # (connected and registerProducer) which are part of the implementation.
     transport: Connection
     _format: Callable[[logging.LogRecord], str]
     _buffer: Deque[logging.LogRecord]
@@ -70,22 +54,16 @@ class LogProducer:
         self._buffer = deque()
 
     def resumeProducing(self) -> None:
-        # If we're already producing, nothing to do.
         self._paused = False
 
-        # Loop until paused.
         while self._paused is False and (self._buffer and self.transport.connected):
             try:
-                # Request the next record and format it.
                 record = self._buffer.popleft()
                 msg = self._format(record)
 
-                # Send it as a new line over the transport.
                 self.transport.write(msg.encode("utf8"))
                 self.transport.write(b"\n")
             except Exception:
-                # Something has gone wrong writing to the transport -- log it
-                # and break out of the while.
                 traceback.print_exc(file=sys.__stderr__)
                 break
 
@@ -117,7 +95,6 @@ class RemoteHandler(logging.Handler):
         self._connection_waiter: Optional[Deferred] = None
         self._producer: Optional[LogProducer] = None
 
-        # Connect without DNS lookups if it's a direct IP.
         if _reactor is None:
             from twisted.internet import reactor
 
@@ -150,38 +127,28 @@ class RemoteHandler(logging.Handler):
         """
         Triggers an attempt to connect then write to the remote if not already writing.
         """
-        # Do not attempt to open multiple connections.
         if self._connection_waiter:
             return
 
         def fail(failure: Failure) -> None:
-            # If the Deferred was cancelled (e.g. during shutdown) do not try to
-            # reconnect (this will cause an infinite loop of errors).
             if failure.check(CancelledError) and self._stopping:
                 return
 
-            # For a different error, print the traceback and re-connect.
             failure.printTraceback(file=sys.__stderr__)
             self._connection_waiter = None
             self._connect()
 
         def writer(result: Protocol) -> None:
-            # Force recognising transport as a Connection and not the more
-            # generic ITransport.
             transport: Connection = result.transport  # type: ignore
 
-            # We have a connection. If we already have a producer, and its
-            # transport is the same, just trigger a resumeProducing.
             if self._producer and transport is self._producer.transport:
                 self._producer.resumeProducing()
                 self._connection_waiter = None
                 return
 
-            # If the producer is still producing, stop it.
             if self._producer:
                 self._producer.stopProducing()
 
-            # Make a new producer and start it.
             self._producer = LogProducer(
                 buffer=self._buffer,
                 transport=transport,
@@ -207,7 +174,6 @@ class RemoteHandler(logging.Handler):
         if len(self._buffer) <= self.maximum_buffer:
             return
 
-        # Strip out DEBUGs
         self._buffer = deque(
             filter(lambda record: record.levelno > logging.DEBUG, self._buffer)
         )
@@ -215,7 +181,6 @@ class RemoteHandler(logging.Handler):
         if len(self._buffer) <= self.maximum_buffer:
             return
 
-        # Strip out INFOs
         self._buffer = deque(
             filter(lambda record: record.levelno > logging.INFO, self._buffer)
         )
@@ -223,7 +188,6 @@ class RemoteHandler(logging.Handler):
         if len(self._buffer) <= self.maximum_buffer:
             return
 
-        # Cut the middle entries out
         buffer_split = floor(self.maximum_buffer / 2)
 
         old_buffer = self._buffer
@@ -241,14 +205,10 @@ class RemoteHandler(logging.Handler):
     def emit(self, record: logging.LogRecord) -> None:
         self._buffer.append(record)
 
-        # Handle backpressure, if it exists.
         try:
             self._handle_pressure()
         except Exception:
-            # If handling backpressure fails, clear the buffer and log the
-            # exception.
             self._buffer.clear()
             logger.warning("Failed clearing backpressure")
 
-        # Try and write immediately.
         self._connect()

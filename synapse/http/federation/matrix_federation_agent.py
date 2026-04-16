@@ -1,16 +1,3 @@
-# Copyright 2019 New Vector Ltd
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 import logging
 import urllib.parse
 from typing import Any, Generator, List, Optional
@@ -94,11 +81,8 @@ class MatrixFederationAgent:
         _srv_resolver: Optional[SrvResolver] = None,
         _well_known_resolver: Optional[WellKnownResolver] = None,
     ):
-        # proxy_reactor is not blocklisting reactor
         proxy_reactor = reactor
 
-        # We need to use a DNS resolver which filters out blocked IP
-        # addresses, to prevent DNS rebinding.
         reactor = BlocklistingReactorWrapper(reactor, ip_allowlist, ip_blocklist)
 
         self._clock = Clock(reactor)
@@ -162,18 +146,10 @@ class MatrixFederationAgent:
             which prevents that response from being received (including problems that
             prevent the request from being sent).
         """
-        # We use urlparse as that will set `port` to None if there is no
-        # explicit port.
         parsed_uri = urllib.parse.urlparse(uri)
 
-        # There must be a valid hostname.
         assert parsed_uri.hostname
 
-        # If this is a matrix-federation:// URI check if the server has delegated matrix
-        # traffic using well-known delegation.
-        #
-        # We have to do this here and not in the endpoint as we need to rewrite
-        # the host header with the delegated server name.
         delegated_server = None
         if (
             parsed_uri.scheme == b"matrix-federation"
@@ -201,8 +177,6 @@ class MatrixFederationAgent:
             )
             parsed_uri = urllib.parse.urlparse(uri)
 
-        # We need to make sure the host header is set to the netloc of the
-        # server and that a user-agent is provided.
         if headers is None:
             request_headers = Headers()
         else:
@@ -281,12 +255,10 @@ class MatrixHostnameEndpoint:
         self._reactor = reactor
         self._parsed_uri = parsed_uri
 
-        # http_proxy is not needed because federation is always over TLS
         proxies = getproxies_environment()
         https_proxy = proxies["https"].encode() if "https" in proxies else None
         self.no_proxy = proxies["no"] if "no" in proxies else None
 
-        # endpoint and credentials to use to connect to the outbound https proxy, if any.
         (
             self._https_proxy_endpoint,
             self._https_proxy_creds,
@@ -296,12 +268,7 @@ class MatrixHostnameEndpoint:
             tls_client_options_factory,
         )
 
-        # set up the TLS connection params
-        #
-        # XXX disabling TLS is really only supported here for the benefit of the
-        # unit tests. We should make the UTs cope with TLS rather than having to make
-        # the code support the unit tests.
-
+        
         if tls_client_options_factory is None:
             self._tls_options = None
         else:
@@ -368,12 +335,9 @@ class MatrixHostnameEndpoint:
                 if not first_exception:
                     first_exception = e
 
-        # We return the first failure because that's probably the most interesting.
         if first_exception:
             raise first_exception
 
-        # This shouldn't happen as we should always have at least one host/port
-        # to try and if that doesn't work then we'll have an exception.
         raise Exception("Failed to resolve server %r" % (self._parsed_uri.netloc,))
 
     async def _resolve_server(self) -> List[Server]:
@@ -384,22 +348,14 @@ class MatrixHostnameEndpoint:
         if self._parsed_uri.scheme != b"matrix-federation":
             return [Server(host=self._parsed_uri.host, port=self._parsed_uri.port)]
 
-        # Note: We don't do well-known lookup as that needs to have happened
-        # before now, due to needing to rewrite the Host header of the HTTP
-        # request.
-
-        # We reparse the URI so that defaultPort is -1 rather than 80
         parsed_uri = urllib.parse.urlparse(self._parsed_uri.toBytes())
 
         host = parsed_uri.hostname
         port = parsed_uri.port
 
-        # If there is an explicit port or the host is an IP address we bypass
-        # SRV lookups and just use the given host/port.
         if port or _is_ip_literal(host):
             return [Server(host, port or 8448)]
 
-        # Check _matrix-fed._tcp SRV record.
         logger.debug("Looking up SRV record for %s", host.decode(errors="replace"))
         server_list = await self._srv_resolver.resolve_service(
             b"_matrix-fed._tcp." + host
@@ -414,7 +370,6 @@ class MatrixHostnameEndpoint:
                 )
             return server_list
 
-        # No _matrix-fed._tcp SRV record, fallback to legacy _matrix._tcp SRV record.
         logger.debug(
             "Looking up deprecated SRV record for %s", host.decode(errors="replace")
         )
@@ -429,7 +384,6 @@ class MatrixHostnameEndpoint:
                 )
             return server_list
 
-        # No SRV records, so we fallback to host and 8448
         logger.debug("No SRV records for %s", host.decode(errors="replace"))
         return [Server(host, 8448)]
 
