@@ -326,7 +326,7 @@ ruff = "0.1.7"
 pydantic = "^2"
 
 # Typechecking
-lxml-stubs = ">=0.4.0"
+lxml-stubs = ">=0.5.1"
 mypy = "*"
 mypy-zope = "*"
 types-bleach = ">=4.1.0"
