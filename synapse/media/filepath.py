@@ -1,18 +1,3 @@
-# Copyright 2014-2016 OpenMarket Ltd
-# Copyright 2020-2021 The Matrix.org Foundation C.I.C.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 import functools
 import os
 import re
@@ -75,37 +60,15 @@ def _wrap_with_jail_check(relative: bool) -> Callable[[GetPathMethod], GetPathMe
                 paths_to_check = [path_or_paths]
 
             for path in paths_to_check:
-                # Construct the path that will ultimately be used.
-                # We cannot guess whether `path` is relative to the media store
-                # directory, since the media store directory may itself be a relative
-                # path.
                 if relative:
                     path = os.path.join(self.base_path, path)
                 normalized_path = os.path.normpath(path)
 
-                # Now that `normpath` has eliminated `../`s and `./`s from the path,
-                # `os.path.commonpath` can be used to check whether it lies within the
-                # media store directory.
                 if (
                     os.path.commonpath([normalized_path, self.normalized_base_path])
                     != self.normalized_base_path
                 ):
-                    # The path resolves to outside the media store directory,
-                    # or `self.base_path` is `.`, which is an unlikely configuration.
                     raise ValueError(f"Invalid media store path: {path!r}")
-
-                # Note that `os.path.normpath`/`abspath` has a subtle caveat:
-                # `a/b/c/../c` will normalize to `a/b/c`, but the former refers to a
-                # different path if `a/b/c` is a symlink. That is, the check above is
-                # not perfect and may allow a certain restricted subset of untrustworthy
-                # paths through. Since the check above is secondary to the main
-                # `_validate_path_component` checks, it's less important for it to be
-                # perfect.
-                #
-                # As an alternative, `os.path.realpath` will resolve symlinks, but
-                # proves problematic if there are symlinks inside the media store.
-                # eg. if `url_store/` is symlinked to elsewhere, its canonical path
-                # won't match that of the main media store directory.
 
             return path_or_paths
 
@@ -157,13 +120,8 @@ class MediaFilePaths:
         self.base_path = primary_base_path
         self.normalized_base_path = os.path.normpath(self.base_path)
 
-        # Refuse to initialize if paths cannot be validated correctly for the current
-        # platform.
         assert os.path.sep not in ALLOWED_CHARACTERS
         assert os.path.altsep not in ALLOWED_CHARACTERS
-        # On Windows, paths have all sorts of weirdness which `_validate_path_component`
-        # does not consider. In any case, the remote media store can't work correctly
-        # for certain homeservers there, since ":"s aren't allowed in paths.
         assert os.name == "posix"
 
     @_wrap_with_jail_check(relative=True)
@@ -246,9 +204,6 @@ class MediaFilePaths:
 
     remote_media_thumbnail = _wrap_in_base_path(remote_media_thumbnail_rel)
 
-    # Legacy path that was used to store thumbnails previously.
-    # Should be removed after some time, when most of the thumbnails are stored
-    # using the new path.
     @_wrap_with_jail_check(relative=True)
     def remote_media_thumbnail_rel_legacy(
         self, server_name: str, file_id: str, width: int, height: int, content_type: str
@@ -278,8 +233,6 @@ class MediaFilePaths:
     @_wrap_with_jail_check(relative=True)
     def url_cache_filepath_rel(self, media_id: str) -> str:
         if NEW_FORMAT_ID_RE.match(media_id):
-            # Media id is of the form <DATE><RANDOM_STRING>
-            # E.g.: 2017-09-28-fsdRDt24DS234dsf
             return os.path.join(
                 "url_cache",
                 _validate_path_component(media_id[:10]),
@@ -321,8 +274,6 @@ class MediaFilePaths:
     def url_cache_thumbnail_rel(
         self, media_id: str, width: int, height: int, content_type: str, method: str
     ) -> str:
-        # Media id is of the form <DATE><RANDOM_STRING>
-        # E.g.: 2017-09-28-fsdRDt24DS234dsf
 
         top_level_type, sub_type = content_type.split("/")
         file_name = "%i-%i-%s-%s-%s" % (width, height, top_level_type, sub_type, method)
@@ -347,8 +298,6 @@ class MediaFilePaths:
 
     @_wrap_with_jail_check(relative=True)
     def url_cache_thumbnail_directory_rel(self, media_id: str) -> str:
-        # Media id is of the form <DATE><RANDOM_STRING>
-        # E.g.: 2017-09-28-fsdRDt24DS234dsf
 
         if NEW_FORMAT_ID_RE.match(media_id):
             return os.path.join(
@@ -371,8 +320,6 @@ class MediaFilePaths:
     @_wrap_with_jail_check(relative=False)
     def url_cache_thumbnail_dirs_to_delete(self, media_id: str) -> List[str]:
         "The dirs to try and remove if we delete the media_id thumbnails"
-        # Media id is of the form <DATE><RANDOM_STRING>
-        # E.g.: 2017-09-28-fsdRDt24DS234dsf
         if NEW_FORMAT_ID_RE.match(media_id):
             return [
                 os.path.join(

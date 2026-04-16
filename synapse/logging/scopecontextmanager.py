@@ -1,17 +1,3 @@
-# Copyright 2019 The Matrix.org Foundation C.I.C.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.import logging
-
 import logging
 from types import TracebackType
 from typing import Optional, Type
@@ -78,19 +64,9 @@ class LogContextScopeManager(ScopeManager):
             return Scope(None, span)  # type: ignore[arg-type]
 
         if ctx.scope is not None:
-            # start a new logging context as a child of the existing one.
-            # Doing so -- rather than updating the existing logcontext -- means that
-            # creating several concurrent spans under the same logcontext works
-            # correctly.
             ctx = nested_logging_context("")
             enter_logcontext = True
         else:
-            # if there is no span currently associated with the current logcontext, we
-            # just store the scope in it.
-            #
-            # This feels a bit dubious, but it does hack around a problem where a
-            # span outlasts its parent logcontext (which would otherwise lead to
-            # "Re-starting finished log context" errors).
             enter_logcontext = False
 
         scope = _LogContextScope(self, span, ctx, enter_logcontext, finish_on_close)
@@ -146,7 +122,6 @@ class _LogContextScope(Scope):
         traceback: Optional[TracebackType],
     ) -> None:
         if exc_type == twisted.internet.defer._DefGen_Return:
-            # filter out defer.returnValue() calls
             exc_type = value = traceback = None
         super().__exit__(exc_type, value, traceback)
 

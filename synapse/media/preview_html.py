@@ -1,16 +1,3 @@
-# Copyright 2021 The Matrix.org Foundation C.I.C.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 import codecs
 import logging
 import re
@@ -40,7 +27,6 @@ _xml_encoding_match = re.compile(
 )
 _content_type_match = re.compile(r'.*; *charset="?(.*?)"?(;|$)', flags=re.I)
 
-# Certain elements aren't meant for display.
 ARIA_ROLES_TO_IGNORE = {"directory", "menu", "menubar", "toolbar"}
 
 
@@ -75,13 +61,10 @@ def _get_html_media_encodings(
     Returns:
         The character encoding of the body, as a string.
     """
-    # There's no point in returning an encoding more than once.
     attempted_encodings: Set[str] = set()
 
-    # Limit searches to the first 1kb, since it ought to be at the top.
     body_start = body[:1024]
 
-    # Check if it has an encoding set in a meta tag.
     match = _charset_match.search(body_start)
     if match:
         encoding = _normalise_encoding(match.group(1).decode("ascii"))
@@ -89,9 +72,6 @@ def _get_html_media_encodings(
             attempted_encodings.add(encoding)
             yield encoding
 
-    # TODO Support <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
-
-    # Check if it has an XML document with an encoding.
     match = _xml_encoding_match.match(body_start)
     if match:
         encoding = _normalise_encoding(match.group(1).decode("ascii"))
@@ -99,7 +79,6 @@ def _get_html_media_encodings(
             attempted_encodings.add(encoding)
             yield encoding
 
-    # Check the HTTP Content-Type header for a character set.
     if content_type:
         content_match = _content_type_match.match(content_type)
         if content_match:
@@ -108,7 +87,6 @@ def _get_html_media_encodings(
                 attempted_encodings.add(encoding)
                 yield encoding
 
-    # Finally, fallback to UTF-8, then windows-1252.
     for fallback in ("utf-8", "cp1252"):
         if fallback not in attempted_encodings:
             yield fallback
@@ -128,13 +106,9 @@ def decode_body(
     Returns:
         The parsed HTML body, or None if an error occurred during processed.
     """
-    # If there's no body, nothing useful is going to be found.
     if not body:
         return None
 
-    # The idea here is that multiple encodings are tried until one works.
-    # Unfortunately the result is never used and then LXML will decode the string
-    # again with the found encoding.
     for encoding in _get_html_media_encodings(body, content_type):
         try:
             body.decode(encoding)
@@ -148,12 +122,8 @@ def decode_body(
 
     from lxml import etree
 
-    # Create an HTML parser.
     parser = etree.HTMLParser(recover=True, encoding=encoding)
 
-    # Attempt to parse the body. Returns None if the body was successfully
-    # parsed, but no tree was found.
-    # TODO Develop of lxml-stubs has this correct.
     return etree.fromstring(body, parser)  # type: ignore[arg-type]
 
 
@@ -177,17 +147,13 @@ def _get_meta_tags(
     Returns:
         A map of tag name to value.
     """
-    # This actually returns Dict[str, str], but the caller sets this as a variable
-    # which is Dict[str, Optional[str]].
     results: Dict[str, Optional[str]] = {}
-    # Cast: the type returned by xpath depends on the xpath expression: mypy can't deduce this.
     for tag in cast(
         List["etree._Element"],
         tree.xpath(
             f"//*/meta[starts-with(@{property}, '{prefix}:')][@content][not(@content='')]"
         ),
     ):
-        # if we've got more than 50 tags, someone is taking the piss
         if len(results) >= 50:
             logger.warning(
                 "Skipping parsing of Open Graph for page with too many '%s:' tags",
@@ -198,7 +164,6 @@ def _get_meta_tags(
         key = cast(str, tag.attrib[property])
         if property_mapper:
             new_key = property_mapper(key)
-            # None is a special value used to ignore a value.
             if new_key is None:
                 continue
             key = new_key
@@ -219,12 +184,10 @@ def _map_twitter_to_open_graph(key: str) -> Optional[str]:
         The Open Graph property (starts with "og:") or None to have this property
         be ignored.
     """
-    # Twitter card properties with no analogous Open Graph property.
     if key == "twitter:card" or key == "twitter:creator":
         return None
     if key == "twitter:site":
         return "og:site_name"
-    # Otherwise, swap twitter to og.
     return "og" + key[7:]
 
 
@@ -242,50 +205,14 @@ def parse_html_to_open_graph(tree: "etree._Element") -> Dict[str, Optional[str]]
         The Open Graph response as a dictionary.
     """
 
-    # Search for Open Graph (og:) meta tags, e.g.:
-    #
-    # "og:type"         : "video",
-    # "og:url"          : "https://www.youtube.com/watch?v=LXDBoHyjmtw",
-    # "og:site_name"    : "YouTube",
-    # "og:video:type"   : "application/x-shockwave-flash",
-    # "og:description"  : "Fun stuff happening here",
-    # "og:title"        : "RemoteJam - Matrix team hack for Disrupt Europe Hackathon",
-    # "og:image"        : "https://i.ytimg.com/vi/LXDBoHyjmtw/maxresdefault.jpg",
-    # "og:video:url"    : "http://www.youtube.com/v/LXDBoHyjmtw?version=3&autohide=1",
-    # "og:video:width"  : "1280"
-    # "og:video:height" : "720",
-    # "og:video:secure_url": "https://www.youtube.com/v/LXDBoHyjmtw?version=3",
-
+ 
     og = _get_meta_tags(tree, "property", "og")
-
-    # TODO: Search for properties specific to the different Open Graph types,
-    # such as article: meta tags, e.g.:
-    #
-    # "article:publisher" : "https://www.facebook.com/thethudonline" />
-    # "article:author" content="https://www.facebook.com/thethudonline" />
-    # "article:tag" content="baby" />
-    # "article:section" content="Breaking News" />
-    # "article:published_time" content="2016-03-31T19:58:24+00:00" />
-    # "article:modified_time" content="2016-04-01T18:31:53+00:00" />
-
-    # Search for Twitter Card (twitter:) meta tags, e.g.:
-    #
-    # "twitter:site"    : "@matrixdotorg"
-    # "twitter:creator" : "@matrixdotorg"
-    #
-    # Twitter cards tags also duplicate Open Graph tags.
-    #
-    # See https://developer.twitter.com/en/docs/twitter-for-websites/cards/guides/getting-started
-    twitter = _get_meta_tags(tree, "name", "twitter", _map_twitter_to_open_graph)
-    # Merge the Twitter values with the Open Graph values, but do not overwrite
-    # information from Open Graph tags.
+   twitter = _get_meta_tags(tree, "name", "twitter", _map_twitter_to_open_graph)
     for key, value in twitter.items():
         if key not in og:
             og[key] = value
 
     if "og:title" not in og:
-        # Attempt to find a title from the title tag, or the biggest header on the page.
-        # Cast: the type returned by xpath depends on the xpath expression: mypy can't deduce this.
         title = cast(
             List["etree._ElementUnicodeResult"],
             tree.xpath("((//title)[1] | (//h1)[1] | (//h2)[1] | (//h3)[1])/text()"),
@@ -296,21 +223,17 @@ def parse_html_to_open_graph(tree: "etree._Element") -> Dict[str, Optional[str]]
             og["og:title"] = None
 
     if "og:image" not in og:
-        # Cast: the type returned by xpath depends on the xpath expression: mypy can't deduce this.
         meta_image = cast(
             List["etree._ElementUnicodeResult"],
             tree.xpath(
                 "//*/meta[translate(@itemprop, 'IMAGE', 'image')='image'][not(@content='')]/@content[1]"
             ),
         )
-        # If a meta image is found, use it.
+
         if meta_image:
             og["og:image"] = meta_image[0]
         else:
-            # Try to find images which are larger than 10px by 10px.
-            # Cast: the type returned by xpath depends on the xpath expression: mypy can't deduce this.
-            #
-            # TODO: consider inlined CSS styles as well as width & height attribs
+
             images = cast(
                 List["etree._Element"],
                 tree.xpath("//img[@src][number(@width)>10][number(@height)>10]"),
@@ -321,16 +244,12 @@ def parse_html_to_open_graph(tree: "etree._Element") -> Dict[str, Optional[str]]
                     -1 * float(i.attrib["width"]) * float(i.attrib["height"])
                 ),
             )
-            # If no images were found, try to find *any* images.
             if not images:
-                # Cast: the type returned by xpath depends on the xpath expression: mypy can't deduce this.
                 images = cast(List["etree._Element"], tree.xpath("//img[@src][1]"))
             if images:
                 og["og:image"] = cast(str, images[0].attrib["src"])
 
-            # Finally, fallback to the favicon if nothing else.
             else:
-                # Cast: the type returned by xpath depends on the xpath expression: mypy can't deduce this.
                 favicons = cast(
                     List["etree._ElementUnicodeResult"],
                     tree.xpath("//link[@href][contains(@rel, 'icon')]/@href[1]"),
@@ -339,15 +258,13 @@ def parse_html_to_open_graph(tree: "etree._Element") -> Dict[str, Optional[str]]
                     og["og:image"] = favicons[0]
 
     if "og:description" not in og:
-        # Check the first meta description tag for content.
-        # Cast: the type returned by xpath depends on the xpath expression: mypy can't deduce this.
         meta_description = cast(
             List["etree._ElementUnicodeResult"],
             tree.xpath(
                 "//*/meta[translate(@name, 'DESCRIPTION', 'description')='description'][not(@content='')]/@content[1]"
             ),
         )
-        # If a meta description is found with content, use it.
+
         if meta_description:
             og["og:description"] = meta_description[0]
         else:
@@ -357,8 +274,6 @@ def parse_html_to_open_graph(tree: "etree._Element") -> Dict[str, Optional[str]]
         assert isinstance(og["og:description"], str)
         og["og:description"] = summarize_paragraphs([og["og:description"]])
 
-    # TODO: delete the url downloads to stop diskfilling,
-    # as we only ever cared about its OG
     return og
 
 
@@ -380,7 +295,6 @@ def parse_html_description(tree: "etree._Element") -> Optional[str]:
     Returns:
         The plain text description, or None if one cannot be generated.
     """
-    # We don't just use XPATH here as that is slow on some machines.
 
     from lxml import etree
 
@@ -398,14 +312,9 @@ def parse_html_description(tree: "etree._Element") -> Optional[str]:
         "canvas",
         "img",
         "picture",
-        # etree.Comment is a function which creates an etree._Comment element.
-        # The "tag" attribute of an etree._Comment instance is confusingly the
-        # etree.Comment function instead of a string.
         etree.Comment,
     }
 
-    # Split all the text nodes into paragraphs (by splitting on new
-    # lines)
     text_nodes = (
         re.sub(r"\s+", "\n", el).strip()
         for el in _iterate_over_text(tree.find("body"), TAGS_TO_REMOVE)
@@ -433,8 +342,6 @@ def _iterate_over_text(
     if tree is None:
         return
 
-    # This is a stack whose items are elements to iterate over *or* strings
-    # to be returned.
     elements: List[Union[str, "etree._Element"]] = [tree]
     while elements:
         el = elements.pop()
@@ -442,28 +349,17 @@ def _iterate_over_text(
         if isinstance(el, str):
             yield el
         elif el.tag not in tags_to_ignore:
-            # If the element isn't meant for display, ignore it.
             if el.get("role") in ARIA_ROLES_TO_IGNORE:
                 continue
 
-            # el.text is the text before the first child, so we can immediately
-            # return it if the text exists.
             if el.text:
                 yield el.text
 
-            # We add to the stack all the element's children, interspersed with
-            # each child's tail text (if it exists).
-            #
-            # We iterate in reverse order so that earlier pieces of text appear
-            # closer to the top of the stack.
             for child in el.iterchildren(reversed=True):
                 if len(elements) > stack_limit:
-                    # We've hit our limit for working memory
                     break
 
                 if child.tail:
-                    # The tail text of a node is text that comes *after* the node,
-                    # so we always include it even if we ignore the child node.
                     elements.append(child.tail)
 
                 elements.append(child)
@@ -484,11 +380,8 @@ def summarize_paragraphs(
         A summary of the text nodes, or None if that was not possible.
     """
 
-    # TODO: Respect sentences?
-
     description = ""
 
-    # Keep adding paragraphs until we get to the MIN_SIZE.
     for text_node in text_nodes:
         if len(description) < min_size:
             text_node = re.sub(r"[\t \r\n]+", " ", text_node)
@@ -500,35 +393,21 @@ def summarize_paragraphs(
     description = re.sub(r"[\t ]+", " ", description)
     description = re.sub(r"[\t \r\n]*[\r\n]+", "\n\n", description)
 
-    # If the concatenation of paragraphs to get above MIN_SIZE
-    # took us over MAX_SIZE, then we need to truncate mid paragraph
     if len(description) > max_size:
         new_desc = ""
 
-        # This splits the paragraph into words, but keeping the
-        # (preceding) whitespace intact so we can easily concat
-        # words back together.
         for match in re.finditer(r"\s*\S+", description):
             word = match.group()
 
-            # Keep adding words while the total length is less than
-            # MAX_SIZE.
             if len(word) + len(new_desc) < max_size:
                 new_desc += word
             else:
-                # At this point the next word *will* take us over
-                # MAX_SIZE, but we also want to ensure that its not
-                # a huge word. If it is add it anyway and we'll
-                # truncate later.
                 if len(new_desc) < min_size:
                     new_desc += word
                 break
 
-        # Double check that we're not over the limit
         if len(new_desc) > max_size:
             new_desc = new_desc[:max_size]
 
-        # We always add an ellipsis because at the very least
-        # we chopped mid paragraph.
         description = new_desc.strip() + "…"
     return description if description else None

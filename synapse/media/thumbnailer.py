@@ -1,17 +1,3 @@
-# Copyright 2014-2016 OpenMarket Ltd
-# Copyright 2020-2021 The Matrix.org Foundation C.I.C.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 import logging
 from io import BytesIO
 from types import TracebackType
@@ -53,35 +39,19 @@ class Thumbnailer:
         try:
             self.image = Image.open(input_path)
         except OSError as e:
-            # If an error occurs opening the image, a thumbnail won't be able to
-            # be generated.
             raise ThumbnailError from e
         except Image.DecompressionBombError as e:
-            # If an image decompression bomb error occurs opening the image,
-            # then the image exceeds the pixel limit and a thumbnail won't
-            # be able to be generated.
             raise ThumbnailError from e
 
         self.width, self.height = self.image.size
         self.transpose_method = None
         try:
-            # We don't use ImageOps.exif_transpose since it crashes with big EXIF
-            #
-            # Ignore safety: Pillow seems to acknowledge that this method is
-            # "private, experimental, but generally widely used". Pillow 6
-            # includes a public getexif() method (no underscore) that we might
-            # consider using instead when we can bump that dependency.
-            #
-            # At the time of writing, Debian buster (currently oldstable)
-            # provides version 5.4.1. It's expected to EOL in mid-2022, see
-            # https://wiki.debian.org/DebianReleases#Production_Releases
             image_exif = self.image._getexif()  # type: ignore
             if image_exif is not None:
                 image_orientation = image_exif.get(EXIF_ORIENTATION_TAG)
                 assert type(image_orientation) is int  # noqa: E721
                 self.transpose_method = EXIF_TRANSPOSE_MAPPINGS.get(image_orientation)
         except Exception as e:
-            # A lot of parsing errors can happen when parsing EXIF
             logger.info("Error parsing image EXIF information: %s", e)
 
     @trace
@@ -92,14 +62,10 @@ class Thumbnailer:
             A tuple containing the new image size in pixels as (width, height).
         """
         if self.transpose_method is not None:
-            # Safety: `transpose` takes an int rather than e.g. an IntEnum.
-            # self.transpose_method is set above to be a value in
-            # EXIF_TRANSPOSE_MAPPINGS, and that only contains correct values.
             with self.image:
                 self.image = self.image.transpose(self.transpose_method)  # type: ignore[arg-type]
             self.width, self.height = self.image.size
             self.transpose_method = None
-            # We don't need EXIF any more
             self.image.info["exif"] = None
         return self.image.size
 
@@ -122,11 +88,6 @@ class Thumbnailer:
             return max((max_height * self.width) // self.height, 1), max_height
 
     def _resize(self, width: int, height: int) -> Image.Image:
-        # 1-bit or 8-bit color palette images need converting to RGB
-        # otherwise they will be scaled using nearest neighbour which
-        # looks awful.
-        #
-        # If the image has transparency, use RGBA instead.
         if self.image.mode in ["1", "L", "P"]:
             if self.image.info.get("transparency", None) is not None:
                 with self.image:
@@ -199,8 +160,6 @@ class Thumbnailer:
 
         self._closed = True
 
-        # Since we run this on the finalizer then we need to handle `__init__`
-        # raising an exception before it can define `self.image`.
         image = getattr(self, "image", None)
         if image is None:
             return
@@ -222,5 +181,4 @@ class Thumbnailer:
         self.close()
 
     def __del__(self) -> None:
-        # Make sure we actually do close the image, rather than leak data.
         self.close()

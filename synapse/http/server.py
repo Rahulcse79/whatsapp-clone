@@ -1,18 +1,3 @@
-# Copyright 2014-2016 OpenMarket Ltd
-# Copyright 2018 New Vector Ltd
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 import abc
 import html
 import logging
@@ -93,12 +78,6 @@ HTML_ERROR_TEMPLATE = """<!DOCTYPE html>
 </html>
 """
 
-# A fictional HTTP status code for requests where the client has disconnected and we
-# successfully cancelled the request. Used only for logging purposes. Clients will never
-# observe this code unless cancellations leak across requests or we raise a
-# `CancelledError` ourselves.
-# Analogous to nginx's 499 status code:
-# https://github.com/nginx/nginx/blob/release-1.21.6/src/http/ngx_http_request.h#L128-L134
 HTTP_STATUS_REQUEST_CANCELLED = 499
 
 
@@ -144,8 +123,6 @@ def return_json_error(
             exc_info=(f.type, f.value, f.getTracebackObject()),
         )
 
-    # Only respond with an error response if we haven't already started writing,
-    # otherwise lets just kill the connection
     if request.startedWriting:
         if request.transport:
             try:

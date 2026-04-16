@@ -1,28 +1,3 @@
-# Copyright 2019 The Matrix.org Foundation C.I.C.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
-
-# NOTE
-# This is a small wrapper around opentracing because opentracing is not currently
-# packaged downstream (specifically debian). Since opentracing instrumentation is
-# fairly invasive it was awkward to make it optional. As a result we opted to encapsulate
-# all opentracing state in these methods which effectively noop if opentracing is
-# not present. We should strongly consider encouraging the downstream distributers
-# to package opentracing and making opentracing a full dependency. In order to facilitate
-# this move the methods have work very similarly to opentracing's and it should only
-# be a matter of few regexes to move over to opentracing's access patterns proper.
-
 """
 ============================
 Using OpenTracing in Synapse
@@ -260,8 +235,6 @@ except ImportError:
 try:
     from rust_python_jaeger_reporter import Reporter
 
-    # jaeger-client 4.7.0 requires that reporters inherit from BaseReporter, which
-    # didn't exist before that version.
     try:
         from jaeger_client.reporter import BaseReporter
     except ImportError:
@@ -293,52 +266,34 @@ logger = logging.getLogger(__name__)
 
 
 class SynapseTags:
-    # The message ID of any to_device EDU processed
     TO_DEVICE_EDU_ID = "to_device.edu_id"
 
-    # Details about to-device messages
     TO_DEVICE_TYPE = "to_device.type"
     TO_DEVICE_SENDER = "to_device.sender"
     TO_DEVICE_RECIPIENT = "to_device.recipient"
     TO_DEVICE_RECIPIENT_DEVICE = "to_device.recipient_device"
-    TO_DEVICE_MSGID = "to_device.msgid"  # client-generated ID
+    TO_DEVICE_MSGID = "to_device.msgid"  
 
-    # Whether the sync response has new data to be returned to the client.
     SYNC_RESULT = "sync.new_data"
 
     INSTANCE_NAME = "instance_name"
 
-    # incoming HTTP request ID  (as written in the logs)
     REQUEST_ID = "request_id"
 
-    # HTTP request tag (used to distinguish full vs incremental syncs, etc)
     REQUEST_TAG = "request_tag"
 
-    # Text description of a database transaction
     DB_TXN_DESC = "db.txn_desc"
 
-    # Uniqueish ID of a database transaction
     DB_TXN_ID = "db.txn_id"
 
-    # The name of the external cache
     CACHE_NAME = "cache.name"
 
-    # Boolean. Present on /v2/send_join requests, omitted from all others.
-    # True iff partial state was requested and we provided (or intended to provide)
-    # partial state in the response.
     SEND_JOIN_RESPONSE_IS_PARTIAL_STATE = "send_join.partial_state_response"
 
-    # Used to tag function arguments
-    #
-    # Tag a named arg. The name of the argument should be appended to this prefix.
     FUNC_ARG_PREFIX = "ARG."
-    # Tag extra variadic number of positional arguments (`def foo(first, second, *extras)`)
     FUNC_ARGS = "args"
-    # Tag keyword args
     FUNC_KWARGS = "kwargs"
 
-    # Some intermediate result that's interesting to the function. The label for
-    # the result should be appended to this prefix.
     RESULT_PREFIX = "RESULT."
 
 
@@ -346,17 +301,10 @@ class SynapseBaggage:
     FORCE_TRACING = "synapse-force-tracing"
 
 
-# Block everything by default
-# A regex which matches the server_names to expose traces for.
-# None means 'block everything'.
 _homeserver_whitelist: Optional[Pattern[str]] = None
-
-# Util methods
 
 
 class _Sentinel(enum.Enum):
-    # defining a sentinel in this way allows mypy to correctly handle the
-    # type of a dictionary lookup.
     sentinel = object()
 
 
@@ -452,17 +400,11 @@ def init_tracer(hs: "HomeServer") -> None:
             "installed."
         )
 
-    # Pull out the jaeger config if it was given. Otherwise set it to something sensible.
-    # See https://github.com/jaegertracing/jaeger-client-python/blob/master/jaeger_client/config.py
-
+ 
     set_homeserver_whitelist(hs.config.tracing.opentracer_whitelist)
 
     from jaeger_client.metrics.prometheus import PrometheusMetricsFactory
 
-    # Instance names are opaque strings but by stripping off the number suffix,
-    # we can get something that looks like a "worker type", e.g.
-    # "client_reader-1" -> "client_reader" so we don't spread the traces across
-    # so many services.
     instance_name_by_type = re.sub(
         STRIP_INSTANCE_NUMBER_SUFFIX_REGEX, "", hs.get_instance_name()
     )
@@ -470,9 +412,6 @@ def init_tracer(hs: "HomeServer") -> None:
     jaeger_config = hs.config.tracing.jaeger_config
     tags = jaeger_config.setdefault("tags", {})
 
-    # tag the Synapse instance name so that it's an easy jumping
-    # off point into the logs. Can also be used to filter for an
-    # instance that is under load.
     tags[SynapseTags.INSTANCE_NAME] = hs.get_instance_name()
 
     config = JaegerConfig(
@@ -482,7 +421,6 @@ def init_tracer(hs: "HomeServer") -> None:
         metrics_factory=PrometheusMetricsFactory(),
     )
 
-    # If we have the rust jaeger reporter available let's use that.
     if RustReporter:
         logger.info("Using rust_python_jaeger_reporter library")
         assert config.sampler is not None
@@ -492,7 +430,6 @@ def init_tracer(hs: "HomeServer") -> None:
         config.initialize_tracer()
 
 
-# Whitelisting
 
 
 @only_if_tracing
@@ -504,7 +441,6 @@ def set_homeserver_whitelist(homeserver_whitelist: Iterable[str]) -> None:
     """
     global _homeserver_whitelist
     if homeserver_whitelist:
-        # Makes a single regex which accepts all passed in regexes in the list
         _homeserver_whitelist = re.compile(
             "({})".format(")|(".join(homeserver_whitelist))
         )
@@ -523,10 +459,6 @@ def whitelisted_homeserver(destination: str) -> bool:
     return False
 
 
-# Start spans and scopes
-
-
-# Could use kwargs but I want these to be explicit
 def start_active_span(
     operation_name: str,
     child_of: Optional[Union["opentracing.Span", "opentracing.SpanContext"]] = None,
@@ -553,7 +485,6 @@ def start_active_span(
         return contextlib.nullcontext()  # type: ignore[unreachable]
 
     if tracer is None:
-        # use the global tracer by default
         tracer = opentracing.tracer
 
     return tracer.start_active_span(
@@ -916,8 +847,6 @@ def _custom_sync_async_decorator(
                 return await func(*args, **kwargs)
 
     else:
-        # The other case here handles sync functions including those decorated with
-        # `@defer.inlineCallbacks` or that return a `Deferred` or other `Awaitable`.
         @wraps(func)
         def _wrapper(*args: P.args, **kwargs: P.kwargs) -> Any:
             scope = wrapping_logic(func, *args, **kwargs)
@@ -933,8 +862,6 @@ def _custom_sync_async_decorator(
                         return result
 
                     def err_back(result: R) -> R:
-                        # TODO: Pass the error details into `scope.__exit__(...)` for
-                        #       consistency with the other paths.
                         scope.__exit__(None, None, None)
                         return result
 
@@ -952,13 +879,8 @@ def _custom_sync_async_decorator(
                             scope.__exit__(type(e), None, e.__traceback__)
                             raise
 
-                    # The original method returned an awaitable, eg. a coroutine, so we
-                    # create another awaitable wrapping it that calls
-                    # `scope.__exit__(...)`.
                     return wrap_awaitable()
                 else:
-                    # Just a simple sync function so we can just exit the scope and
-                    # return the result without any fuss.
                     scope.__exit__(None, None, None)
 
                 return result
@@ -967,7 +889,7 @@ def _custom_sync_async_decorator(
                 scope.__exit__(type(e), None, e.__traceback__)
                 raise
 
-    return _wrapper  # type: ignore[return-value]
+    return _wrapper  
 
 
 def trace_with_opname(
@@ -1019,20 +941,12 @@ def tag_args(func: Callable[P, R]) -> Callable[P, R]:
     if not opentracing:
         return func
 
-    # getfullargspec is somewhat expensive, so ensure it is only called a single
-    # time (the function signature shouldn't change anyway).
     argspec = inspect.getfullargspec(func)
 
     @contextlib.contextmanager
     def _wrapping_logic(
         _func: Callable[P, R], *args: P.args, **kwargs: P.kwargs
     ) -> Generator[None, None, None]:
-        # We use `[1:]` to skip the `self` object reference and `start=1` to
-        # make the index line up with `argspec.args`.
-        #
-        # FIXME: We could update this to handle any type of function by ignoring the
-        #   first argument only if it's named `self` or `cls`. This isn't fool-proof
-        #   but handles the idiomatic cases.
         for i, arg in enumerate(args[1:], start=1):
             set_tag(SynapseTags.FUNC_ARG_PREFIX + argspec.args[i], str(arg))
         set_tag(SynapseTags.FUNC_ARGS, str(args[len(argspec.args) :]))
@@ -1071,9 +985,6 @@ def trace_servlet(
     request_name = request.request_metrics.name
     context = span_context_from_request(request) if extract_context else None
 
-    # we configure the scope not to finish the span immediately on exit, and instead
-    # pass the span into the SynapseRequest, which will finish it once we've finished
-    # sending the response to the client.
     scope = start_active_span(request_name, child_of=context, finish_on_close=False)
     request.set_opentracing_span(scope.span)
 
@@ -1082,17 +993,11 @@ def trace_servlet(
         try:
             yield
         finally:
-            # We set the operation name again in case its changed (which happens
-            # with JsonResource).
             scope.span.set_operation_name(request.request_metrics.name)
 
-            # Mypy seems to think that start_context.tag below can be Optional[str], but
-            # that doesn't appear to be correct and works in practice.
             request_tags[
                 SynapseTags.REQUEST_TAG
             ] = request.request_metrics.start_context.tag  # type: ignore[assignment]
 
-            # set the tags *after* the servlet completes, in case it decided to
-            # prioritise the span (tags will get dropped on unprioritised spans)
             for k, v in request_tags.items():
                 scope.span.set_tag(k, v)

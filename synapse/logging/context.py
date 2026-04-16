@@ -1,18 +1,3 @@
-# Copyright 2014-2016 OpenMarket Ltd
-# Copyright 2019 The Matrix.org Foundation C.I.C.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 """ Thread-local-alike tracking of log contexts within synapse
 
 This module provides objects and utilities for tracking contexts through
@@ -54,12 +39,8 @@ logger = logging.getLogger(__name__)
 try:
     import resource
 
-    # Python doesn't ship with a definition of RUSAGE_THREAD but it's defined
-    # to be 1 on linux so we hard code it.
     RUSAGE_THREAD = 1
 
-    # If the system doesn't support RUSAGE_THREAD then this should throw an
-    # exception.
     resource.getrusage(RUSAGE_THREAD)
 
     is_thread_resource_usage_supported = True
@@ -68,25 +49,16 @@ try:
         return resource.getrusage(RUSAGE_THREAD)
 
 except Exception:
-    # If the system doesn't support resource.getrusage(RUSAGE_THREAD) then we
-    # won't track resource usage.
     is_thread_resource_usage_supported = False
 
     def get_thread_resource_usage() -> "Optional[resource.struct_rusage]":
         return None
 
 
-# a hook which can be set during testing to assert that we aren't abusing logcontexts.
 def logcontext_error(msg: str) -> None:
     logger.warning(msg)
 
 
-# get an id for the current thread.
-#
-# threading.get_ident doesn't actually return an OS-level tid, and annoyingly,
-# on Linux it actually returns the same value either side of a fork() call. However
-# we only fork in one place, so it's not worth the hoop-jumping to get a real tid.
-#
 get_thread_id = threading.get_ident
 
 
@@ -122,7 +94,6 @@ class ContextResourceUsage:
         if copy_from is None:
             self.reset()
         else:
-            # FIXME: mypy can't infer the types set via reset() above, so specify explicitly for now
             self.ru_utime: float = copy_from.ru_utime
             self.ru_stime: float = copy_from.ru_stime
             self.db_txn_count: int = copy_from.db_txn_count
@@ -291,11 +262,8 @@ class LoggingContext:
     ) -> None:
         self.previous_context = current_context()
 
-        # track the resources used by this context so far
         self._resource_usage = ContextResourceUsage()
 
-        # The thread resource usage when the logcontext became active. None
-        # if the context is not currently active.
         self.usage_start: Optional[resource.struct_rusage] = None
 
         self.main_thread = get_thread_id()
@@ -303,25 +271,18 @@ class LoggingContext:
         self.tag = ""
         self.scope: Optional["_LogContextScope"] = None
 
-        # keep track of whether we have hit the __exit__ block for this context
-        # (suggesting that the the thing that created the context thinks it should
-        # be finished, and that re-activating it would suggest an error).
         self.finished = False
 
         self.parent_context = parent_context
 
         if self.parent_context is not None:
-            # we track the current request_id
             self.request = self.parent_context.request
 
-            # we also track the current scope:
             self.scope = self.parent_context.scope
 
         if request is not None:
-            # the request param overrides the request from the parent context
             self.request = request
 
-        # if we don't have a `name`, but do have a parent context, use its name.
         if self.parent_context and name is None:
             name = str(self.parent_context)
         if name is None:
@@ -407,9 +368,6 @@ class LoggingContext:
                     "Expected logging context %s but found %s" % (self, current)
                 )
 
-        # the fact that we are here suggests that the caller thinks that everything
-        # is done and dusted for this logcontext, and further activity will not get
-        # recorded against the correct metrics.
         self.finished = True
 
     def start(self, rusage: "Optional[resource.struct_rusage]") -> None:
@@ -430,8 +388,6 @@ class LoggingContext:
         if self.finished:
             logcontext_error("Re-starting finished log context %s" % (self,))
 
-        # If we haven't already started record the thread resource usage so
-        # far
         if self.usage_start:
             logcontext_error("Re-starting already-active log context %s" % (self,))
         else:
@@ -476,11 +432,8 @@ class LoggingContext:
         Returns:
             A *copy* of the object tracking resource usage so far
         """
-        # we always return a copy, for consistency
         res = self._resource_usage.copy()
 
-        # If we are on the correct thread and we're currently running then we
-        # can include resource usage so far.
         is_main_thread = get_thread_id() == self.main_thread
         if self.usage_start and is_main_thread:
             rusage = get_thread_resource_usage()
@@ -504,7 +457,6 @@ class LoggingContext:
         utime_delta = current.ru_utime - self.usage_start.ru_utime
         stime_delta = current.ru_stime - self.usage_start.ru_stime
 
-        # sanity check
         if utime_delta < 0:
             logger.error(
                 "utime went backwards! %f < %f",
@@ -587,15 +539,9 @@ class LoggingContextFilter(logging.Filter):
         context = current_context()
         record.request = self._default_request
 
-        # context should never be None, but if it somehow ends up being, then
-        # we end up in a death spiral of infinite loops, so let's check, for
-        # robustness' sake.
         if context is not None:
-            # Logging is interested in the request ID. Note that for backwards
-            # compatibility this is stored as the "request" on the record.
             record.request = str(context)
 
-            # Add some data from the HTTP request.
             request = context.request
             if request is None:
                 return True
@@ -667,8 +613,6 @@ def set_current_context(context: LoggingContextOrSentinel) -> LoggingContextOrSe
     Returns:
         The context that was previously active
     """
-    # everything blows up if we allow current_context to be set to None, so sanity-check
-    # that now.
     if context is None:
         raise TypeError("'context' argument may not be None")
 
@@ -759,8 +703,6 @@ def preserve_fn(
 def run_in_background(
     f: Callable[P, Awaitable[R]], *args: P.args, **kwargs: P.kwargs
 ) -> "defer.Deferred[R]":
-    # The `type: ignore[misc]` above suppresses
-    # "Overloaded function signatures 1 and 2 overlap with incompatible return types"
     ...
 
 
@@ -772,10 +714,6 @@ def run_in_background(
 
 
 def run_in_background(  # type: ignore[misc]
-    # The `type: ignore[misc]` above suppresses
-    # "Overloaded function implementation does not accept all possible arguments of signature 1"
-    # "Overloaded function implementation does not accept all possible arguments of signature 2"
-    # which seems like a bug in mypy.
     f: Union[
         Callable[P, R],
         Callable[P, Awaitable[R]],
@@ -803,47 +741,23 @@ def run_in_background(  # type: ignore[misc]
     try:
         res = f(*args, **kwargs)
     except Exception:
-        # the assumption here is that the caller doesn't want to be disturbed
-        # by synchronous exceptions, so let's turn them into Failures.
         return defer.fail()
 
-    # `res` may be a coroutine, `Deferred`, some other kind of awaitable, or a plain
-    # value. Convert it to a `Deferred`.
     d: "defer.Deferred[R]"
     if isinstance(res, typing.Coroutine):
-        # Wrap the coroutine in a `Deferred`.
         d = defer.ensureDeferred(res)
     elif isinstance(res, defer.Deferred):
         d = res
     elif isinstance(res, Awaitable):
-        # `res` is probably some kind of completed awaitable, such as a `DoneAwaitable`
-        # or `Future` from `make_awaitable`.
         d = defer.ensureDeferred(_unwrap_awaitable(res))
     else:
-        # `res` is a plain value. Wrap it in a `Deferred`.
         d = defer.succeed(res)
 
     if d.called and not d.paused:
-        # The function should have maintained the logcontext, so we can
-        # optimise out the messing about
         return d
 
-    # The function may have reset the context before returning, so
-    # we need to restore it now.
     ctx = set_current_context(current)
 
-    # The original context will be restored when the deferred
-    # completes, but there is nothing waiting for it, so it will
-    # get leaked into the reactor or some other function which
-    # wasn't expecting it. We therefore need to reset the context
-    # here.
-    #
-    # (If this feels asymmetric, consider it this way: we are
-    # effectively forking a new thread of execution. We are
-    # probably currently within a ``with LoggingContext()`` block,
-    # which is supposed to have a single entry and exit point. But
-    # by spawning off another deferred, we are effectively
-    # adding a new exit point.)
     d.addBoth(_set_context_cb, ctx)
     return d
 
@@ -864,12 +778,8 @@ def make_deferred_yieldable(deferred: "defer.Deferred[T]") -> "defer.Deferred[T]
     (This is more-or-less the opposite operation to run_in_background.)
     """
     if deferred.called and not deferred.paused:
-        # it looks like this deferred is ready to run any callbacks we give it
-        # immediately. We may as well optimise out the logcontext faffery.
         return deferred
 
-    # ok, we can't be sure that a yield won't block, so let's reset the
-    # logcontext, and add a callback to the deferred to restore it.
     prev_context = set_current_context(SENTINEL_CONTEXT)
     deferred.addBoth(_set_context_cb, prev_context)
     return deferred

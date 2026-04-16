@@ -1,18 +1,3 @@
-# Copyright 2017 New Vector Ltd
-# Copyright 2019 The Matrix.org Foundation C.I.C.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 import inspect
 import logging
 from typing import (
@@ -27,7 +12,6 @@ from typing import (
     Union,
 )
 
-# `Literal` appears with Python 3.8.
 from typing_extensions import Literal
 
 import synapse
@@ -52,12 +36,7 @@ CHECK_EVENT_FOR_SPAM_CALLBACK = Callable[
         Union[
             str,
             Codes,
-            # Highly experimental, not officially part of the spamchecker API, may
-            # disappear without warning depending on the results of ongoing
-            # experiments.
-            # Use this to return additional information as part of an error.
             Tuple[Codes, JsonDict],
-            # Deprecated
             bool,
         ]
     ],
@@ -72,12 +51,7 @@ USER_MAY_JOIN_ROOM_CALLBACK = Callable[
         Union[
             Literal["NOT_SPAM"],
             Codes,
-            # Highly experimental, not officially part of the spamchecker API, may
-            # disappear without warning depending on the results of ongoing
-            # experiments.
-            # Use this to return additional information as part of an error.
             Tuple[Codes, JsonDict],
-            # Deprecated
             bool,
         ]
     ],
@@ -88,12 +62,7 @@ USER_MAY_INVITE_CALLBACK = Callable[
         Union[
             Literal["NOT_SPAM"],
             Codes,
-            # Highly experimental, not officially part of the spamchecker API, may
-            # disappear without warning depending on the results of ongoing
-            # experiments.
-            # Use this to return additional information as part of an error.
             Tuple[Codes, JsonDict],
-            # Deprecated
             bool,
         ]
     ],
@@ -104,12 +73,7 @@ USER_MAY_SEND_3PID_INVITE_CALLBACK = Callable[
         Union[
             Literal["NOT_SPAM"],
             Codes,
-            # Highly experimental, not officially part of the spamchecker API, may
-            # disappear without warning depending on the results of ongoing
-            # experiments.
-            # Use this to return additional information as part of an error.
             Tuple[Codes, JsonDict],
-            # Deprecated
             bool,
         ]
     ],
@@ -120,12 +84,7 @@ USER_MAY_CREATE_ROOM_CALLBACK = Callable[
         Union[
             Literal["NOT_SPAM"],
             Codes,
-            # Highly experimental, not officially part of the spamchecker API, may
-            # disappear without warning depending on the results of ongoing
-            # experiments.
-            # Use this to return additional information as part of an error.
             Tuple[Codes, JsonDict],
-            # Deprecated
             bool,
         ]
     ],
@@ -136,12 +95,7 @@ USER_MAY_CREATE_ROOM_ALIAS_CALLBACK = Callable[
         Union[
             Literal["NOT_SPAM"],
             Codes,
-            # Highly experimental, not officially part of the spamchecker API, may
-            # disappear without warning depending on the results of ongoing
-            # experiments.
-            # Use this to return additional information as part of an error.
             Tuple[Codes, JsonDict],
-            # Deprecated
             bool,
         ]
     ],
@@ -152,12 +106,7 @@ USER_MAY_PUBLISH_ROOM_CALLBACK = Callable[
         Union[
             Literal["NOT_SPAM"],
             Codes,
-            # Highly experimental, not officially part of the spamchecker API, may
-            # disappear without warning depending on the results of ongoing
-            # experiments.
-            # Use this to return additional information as part of an error.
             Tuple[Codes, JsonDict],
-            # Deprecated
             bool,
         ]
     ],
@@ -186,12 +135,7 @@ CHECK_MEDIA_FILE_FOR_SPAM_CALLBACK = Callable[
         Union[
             Literal["NOT_SPAM"],
             Codes,
-            # Highly experimental, not officially part of the spamchecker API, may
-            # disappear without warning depending on the results of ongoing
-            # experiments.
-            # Use this to return additional information as part of an error.
             Tuple[Codes, JsonDict],
-            # Deprecated
             bool,
         ]
     ],
@@ -208,10 +152,6 @@ CHECK_LOGIN_FOR_SPAM_CALLBACK = Callable[
         Union[
             Literal["NOT_SPAM"],
             Codes,
-            # Highly experimental, not officially part of the spamchecker API, may
-            # disappear without warning depending on the results of ongoing
-            # experiments.
-            # Use this to return additional information as part of an error.
             Tuple[Codes, JsonDict],
         ]
     ],
@@ -225,16 +165,12 @@ def load_legacy_spam_checkers(hs: "synapse.server.HomeServer") -> None:
     spam_checkers: List[Any] = []
     api = hs.get_module_api()
     for module, config in hs.config.spamchecker.spam_checkers:
-        # Older spam checkers don't accept the `api` argument, so we
-        # try and detect support.
         spam_args = inspect.getfullargspec(module)
         if "api" in spam_args.args:
             spam_checkers.append(module(config=config, api=api))
         else:
             spam_checkers.append(module(config=config))
 
-    # The known spam checker hooks. If a spam checker module implements a method
-    # which name appears in this set, we'll want to register it.
     spam_checker_methods = {
         "check_event_for_spam",
         "user_may_invite",
@@ -247,11 +183,7 @@ def load_legacy_spam_checkers(hs: "synapse.server.HomeServer") -> None:
     }
 
     for spam_checker in spam_checkers:
-        # Methods on legacy spam checkers might not be async, so we wrap them around a
-        # wrapper that will call maybe_awaitable on the result.
         def async_wrapper(f: Optional[Callable]) -> Optional[Callable[..., Awaitable]]:
-            # f might be None if the callback isn't implemented by the module. In this
-            # case we don't want to register a callback at all so we return None.
             if f is None:
                 return None
 
@@ -260,19 +192,12 @@ def load_legacy_spam_checkers(hs: "synapse.server.HomeServer") -> None:
             if f.__name__ == "check_registration_for_spam":
                 checker_args = inspect.signature(f)
                 if len(checker_args.parameters) == 3:
-                    # Backwards compatibility; some modules might implement a hook that
-                    # doesn't expect a 4th argument. In this case, wrap it in a function
-                    # that gives it only 3 arguments and drops the auth_provider_id on
-                    # the floor.
                     def wrapper(
                         email_threepid: Optional[dict],
                         username: Optional[str],
                         request_info: Collection[Tuple[str, str]],
                         auth_provider_id: Optional[str],
                     ) -> Union[Awaitable[RegistrationBehaviour], RegistrationBehaviour]:
-                        # Assertion required because mypy can't prove we won't
-                        # change `f` back to `None`. See
-                        # https://mypy.readthedocs.io/en/latest/common_issues.html#narrowing-and-inner-functions
                         assert f is not None
 
                         return f(
@@ -288,16 +213,12 @@ def load_legacy_spam_checkers(hs: "synapse.server.HomeServer") -> None:
                     )
 
             def run(*args: Any, **kwargs: Any) -> Awaitable:
-                # Assertion required because mypy can't prove we won't change `f`
-                # back to `None`. See
-                # https://mypy.readthedocs.io/en/latest/common_issues.html#narrowing-and-inner-functions
                 assert wrapped_func is not None
 
                 return maybe_awaitable(wrapped_func(*args, **kwargs))
 
             return run
 
-        # Register the hooks through the module API.
         hooks = {
             hook: async_wrapper(getattr(spam_checker, hook, None))
             for hook in spam_checker_methods
@@ -429,12 +350,8 @@ class SpamCheckerModuleApiCallbacks:
             with Measure(self.clock, f"{callback.__module__}.{callback.__qualname__}"):
                 res = await delay_cancellation(callback(event))
                 if res is False or res == self.NOT_SPAM:
-                    # This spam-checker accepts the event.
-                    # Other spam-checkers may reject it, though.
                     continue
                 elif res is True:
-                    # This spam-checker rejects the event with deprecated
-                    # return value `True`
                     return synapse.api.errors.Codes.FORBIDDEN, {}
                 elif (
                     isinstance(res, tuple)
@@ -446,21 +363,15 @@ class SpamCheckerModuleApiCallbacks:
                 elif isinstance(res, synapse.api.errors.Codes):
                     return res, {}
                 elif not isinstance(res, str):
-                    # mypy complains that we can't reach this code because of the
-                    # return type in CHECK_EVENT_FOR_SPAM_CALLBACK, but we don't know
-                    # for sure that the module actually returns it.
                     logger.warning(
                         "Module returned invalid value, rejecting message as spam"
                     )
                     res = "This message has been rejected as probable spam"
                 else:
-                    # The module rejected the event either with a `Codes`
-                    # or some other `str`. In either case, we stop here.
                     pass
 
                 return res
 
-        # No spam-checker has rejected the event, let it pass.
         return self.NOT_SPAM
 
     async def should_drop_federated_event(
@@ -503,7 +414,6 @@ class SpamCheckerModuleApiCallbacks:
         for callback in self._user_may_join_room_callbacks:
             with Measure(self.clock, f"{callback.__module__}.{callback.__qualname__}"):
                 res = await delay_cancellation(callback(user_id, room_id, is_invited))
-                # Normalize return values to `Codes` or `"NOT_SPAM"`.
                 if res is True or res is self.NOT_SPAM:
                     continue
                 elif res is False:
@@ -523,7 +433,6 @@ class SpamCheckerModuleApiCallbacks:
                     )
                     return synapse.api.errors.Codes.FORBIDDEN, {}
 
-        # No spam-checker has rejected the request, let it pass.
         return self.NOT_SPAM
 
     async def user_may_invite(
@@ -544,7 +453,6 @@ class SpamCheckerModuleApiCallbacks:
                 res = await delay_cancellation(
                     callback(inviter_userid, invitee_userid, room_id)
                 )
-                # Normalize return values to `Codes` or `"NOT_SPAM"`.
                 if res is True or res is self.NOT_SPAM:
                     continue
                 elif res is False:
@@ -564,7 +472,6 @@ class SpamCheckerModuleApiCallbacks:
                     )
                     return synapse.api.errors.Codes.FORBIDDEN, {}
 
-        # No spam-checker has rejected the request, let it pass.
         return self.NOT_SPAM
 
     async def user_may_send_3pid_invite(
@@ -589,7 +496,6 @@ class SpamCheckerModuleApiCallbacks:
                 res = await delay_cancellation(
                     callback(inviter_userid, medium, address, room_id)
                 )
-                # Normalize return values to `Codes` or `"NOT_SPAM"`.
                 if res is True or res is self.NOT_SPAM:
                     continue
                 elif res is False:
@@ -727,8 +633,6 @@ class SpamCheckerModuleApiCallbacks:
         """
         for callback in self._check_username_for_spam_callbacks:
             with Measure(self.clock, f"{callback.__module__}.{callback.__qualname__}"):
-                # Make a copy of the user profile object to ensure the spam checker cannot
-                # modify it.
                 res = await delay_cancellation(callback(user_profile.copy()))
             if res:
                 return True
@@ -802,7 +706,6 @@ class SpamCheckerModuleApiCallbacks:
         for callback in self._check_media_file_for_spam_callbacks:
             with Measure(self.clock, f"{callback.__module__}.{callback.__qualname__}"):
                 res = await delay_cancellation(callback(file_wrapper, file_info))
-                # Normalize return values to `Codes` or `"NOT_SPAM"`.
                 if res is False or res is self.NOT_SPAM:
                     continue
                 elif res is True:
@@ -857,7 +760,6 @@ class SpamCheckerModuleApiCallbacks:
                         auth_provider_id,
                     )
                 )
-                # Normalize return values to `Codes` or `"NOT_SPAM"`.
                 if res is self.NOT_SPAM:
                     continue
                 elif isinstance(res, synapse.api.errors.Codes):

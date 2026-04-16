@@ -1,18 +1,3 @@
-# Copyright 2015, 2016 OpenMarket Ltd
-# Copyright 2022 The Matrix.org Foundation C.I.C.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 import itertools
 import logging
 import os
@@ -43,7 +28,6 @@ from prometheus_client.core import (
 
 from twisted.python.threadpool import ThreadPool
 
-# This module is imported for its side effects; flake8 needn't warn that it's unused.
 import synapse.metrics._reactor_metrics  # noqa: F401
 from synapse.metrics._gc import MIN_TIME_BETWEEN_GCS, install_gc_manager
 from synapse.metrics._twisted_exposition import MetricsResource, generate_latest
@@ -68,10 +52,6 @@ class _RegistryProxy:
                 yield metric
 
 
-# A little bit nasty, but collect() above is static so a Protocol doesn't work.
-# _RegistryProxy matches the signature of a CollectorRegistry instance enough
-# for it to be usable in the contexts in which we use it.
-# TODO Do something nicer about this.
 RegistryProxy = cast(CollectorRegistry, _RegistryProxy)
 
 
@@ -82,8 +62,6 @@ class LaterGauge(Collector):
     name: str
     desc: str
     labels: Optional[StrSequence] = attr.ib(hash=False)
-    # callback: should either return a value (if there are no labels for this metric),
-    # or dict mapping from a label tuple to a value
     caller: Callable[
         [], Union[Mapping[Tuple[str, ...], Union[int, float]], Union[int, float]]
     ]
@@ -118,8 +96,6 @@ class LaterGauge(Collector):
         all_gauges[self.name] = self
 
 
-# `MetricsEntry` only makes sense when it is a `Protocol`,
-# but `Protocol` can't be used as a `TypeVar` bound.
 MetricsEntry = TypeVar("MetricsEntry")
 
 
@@ -151,20 +127,16 @@ class InFlightGauge(Generic[MetricsEntry], Collector):
         self.labels = labels
         self.sub_metrics = sub_metrics
 
-        # Create a class which have the sub_metrics values as attributes, which
-        # default to 0 on initialization. Used to pass to registered callbacks.
         self._metrics_class: Type[MetricsEntry] = attr.make_class(
             "_MetricsEntry",
             attrs={x: attr.ib(default=0) for x in sub_metrics},
             slots=True,
         )
 
-        # Counts number of in flight blocks for a given set of label values
         self._registrations: Dict[
             Tuple[str, ...], Set[Callable[[MetricsEntry], None]]
         ] = {}
 
-        # Protects access to _registrations
         self._lock = threading.Lock()
 
         self._register_with_collector()
@@ -210,7 +182,6 @@ class InFlightGauge(Generic[MetricsEntry], Collector):
 
         metrics_by_key = {}
 
-        # We copy so that we don't mutate the list while iterating
         with self._lock:
             keys = list(self._registrations)
 
@@ -278,7 +249,6 @@ class GaugeBucketCollector(Collector):
         self._name = name
         self._documentation = documentation
 
-        # the tops of the buckets
         self._bucket_bounds = [float(b) for b in buckets]
         if self._bucket_bounds != sorted(self._bucket_bounds):
             raise ValueError("Buckets not in sorted order")
@@ -286,14 +256,11 @@ class GaugeBucketCollector(Collector):
         if self._bucket_bounds[-1] != float("inf"):
             self._bucket_bounds.append(float("inf"))
 
-        # We initially set this to None. We won't report metrics until
-        # this has been initialised after a successful data update
         self._metric: Optional[GaugeHistogramMetricFamily] = None
 
         registry.register(self)
 
     def collect(self) -> Iterable[Metric]:
-        # Don't report metrics unless we've already collected some data
         if self._metric is not None:
             yield self._metric
 
@@ -316,11 +283,8 @@ class GaugeBucketCollector(Collector):
                     bucket_values[i] += 1
                     break
 
-            # ... and increment the sum
             total += v
 
-        # now, aggregate the bucket values so that they count the number of entries in
-        # that bucket or below.
         accumulated_values = itertools.accumulate(bucket_values)
 
         return GaugeHistogramMetricFamily(
@@ -332,10 +296,6 @@ class GaugeBucketCollector(Collector):
             gsum_value=total,
         )
 
-
-#
-# Detailed CPU metrics
-#
 
 
 class CPUMetrics(Collector):
@@ -369,9 +329,6 @@ class CPUMetrics(Collector):
 REGISTRY.register(CPUMetrics())
 
 
-#
-# Federation Metrics
-#
 
 sent_transactions_counter = Counter("synapse_federation_client_sent_transactions", "")
 
@@ -388,20 +345,12 @@ event_processing_loop_room_count = Counter(
 )
 
 
-# Used to track where various components have processed in the event stream,
-# e.g. federation sending, appservice sending, etc.
 event_processing_positions = Gauge("synapse_event_processing_positions", "", ["name"])
 
-# Used to track the current max events stream position
 event_persisted_position = Gauge("synapse_event_persisted_position", "")
 
-# Used to track the received_ts of the last event processed by various
-# components
 event_processing_last_ts = Gauge("synapse_event_processing_last_ts", "", ["name"])
 
-# Used to track the lag processing events. This is the time difference
-# between the last processed event's received_ts and the time it was
-# finished being processed.
 event_processing_lag = Gauge("synapse_event_processing_lag", "", ["name"])
 
 event_processing_lag_by_event = Histogram(
@@ -410,7 +359,6 @@ event_processing_lag_by_event = Histogram(
     ["name"],
 )
 
-# Build info of the running server.
 build_info = Gauge(
     "synapse_build_info", "Build information", ["pythonversion", "version", "osversion"]
 )
@@ -420,7 +368,6 @@ build_info.labels(
     " ".join([platform.system(), platform.release()]),
 ).set(1)
 
-# 3PID send info
 threepid_send_requests = Histogram(
     "synapse_threepid_send_requests_with_tries",
     documentation="Number of requests for a 3pid token by try count. Note if"

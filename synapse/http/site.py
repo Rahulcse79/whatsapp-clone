@@ -1,16 +1,3 @@
-# Copyright 2016 OpenMarket Ltd
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 import contextlib
 import logging
 import time
@@ -89,37 +76,23 @@ class SynapseRequest(Request):
         self.start_time = 0.0
         self.experimental_cors_msc3886 = site.experimental_cors_msc3886
 
-        # The requester, if authenticated. For federation requests this is the
-        # server name, for client requests this is the Requester object.
         self._requester: Optional[Union[Requester, str]] = None
 
-        # An opentracing span for this request. Will be closed when the request is
-        # completely processed.
         self._opentracing_span: "Optional[opentracing.Span]" = None
 
-        # we can't yet create the logcontext, as we don't know the method.
         self.logcontext: Optional[LoggingContext] = None
 
-        # The `Deferred` to cancel if the client disconnects early and
-        # `is_render_cancellable` is set. Expected to be set by `Resource.render`.
         self.render_deferred: Optional["Deferred[None]"] = None
-        # A boolean indicating whether `render_deferred` should be cancelled if the
-        # client disconnects early. Expected to be set by the coroutine started by
-        # `Resource.render`, if rendering is asynchronous.
         self.is_render_cancellable: bool = False
 
         global _next_request_seq
         self.request_seq = _next_request_seq
         _next_request_seq += 1
 
-        # whether an asynchronous request handler has called processing()
         self._is_processing = False
 
-        # the time when the asynchronous request handler completed its processing
         self._processing_finished_time: Optional[float] = None
 
-        # what time we finished sending the response to the client (or the connection
-        # dropped)
         self.finish_time: Optional[float] = None
 
     def __repr__(self) -> str:
@@ -384,10 +357,7 @@ class SynapseRequest(Request):
             if self._is_processing:
                 if self.is_render_cancellable:
                     if self.render_deferred is not None:
-                        # Throw a cancellation into the request processing, in the hope
-                        # that it will finish up sooner than it normally would.
-                        # The `self.processing()` context manager will call
-                        # `_finished_processing()` when done.
+                        
                         with PreserveLoggingContext():
                             self.render_deferred.cancel()
                     else:
@@ -433,31 +403,20 @@ class SynapseRequest(Request):
         usage = self.logcontext.get_resource_usage()
 
         if self._processing_finished_time is None:
-            # we completed the request without anything calling processing()
             self._processing_finished_time = time.time()
 
-        # the time between receiving the request and the request handler finishing
         processing_time = self._processing_finished_time - self.start_time
 
-        # the time between the request handler finishing and the response being sent
-        # to the client (nb may be negative)
         response_send_time = self.finish_time - self._processing_finished_time
 
         user_agent = get_request_user_agent(self, "-")
 
-        # int(self.code) looks redundant, because self.code is already an int.
-        # But self.code might be an HTTPStatus (which inherits from int)---which has
-        # a different string representation. So ensure we really have an integer.
         code = str(int(self.code))
         if not self.finished:
-            # we didn't send the full response before we gave up (presumably because
-            # the connection dropped)
             code += "!"
 
         log_level = logging.INFO if self._should_log_request() else logging.DEBUG
 
-        # If this is a request where the target user doesn't match the user who
-        # authenticated (e.g. and admin is puppetting a user) then we log both.
         requester, authenticated_entity = self.get_authenticated_entity()
         if authenticated_entity:
             requester = f"{authenticated_entity}|{requester}"
@@ -513,13 +472,6 @@ class SynapseRequest(Request):
         unix socket and the normal IP address for TCP sockets.
 
         """
-        # getClientAddress().host returns a proper IP address for a TCP socket. But
-        # unix sockets have no concept of IP addresses or ports and return a
-        # UNIXAddress containing a 'None' value. In order to get something usable for
-        # logs(where this is used) get the unix socket file. getHost() returns a
-        # UNIXAddress containing a value of the socket file and has an instance
-        # variable of 'name' encoded as a byte string containing the path we want.
-        # Decode to utf-8 so it looks nice.
         if isinstance(self.getClientAddress(), UNIXAddress):
             return self.getHost().name.decode("utf-8")
         else:
@@ -538,15 +490,10 @@ class XForwardedForRequest(SynapseRequest):
     information from request headers.
     """
 
-    # the client IP and ssl flag, as extracted from the headers.
     _forwarded_for: "Optional[_XForwardedForAddress]" = None
     _forwarded_https: bool = False
 
     def requestReceived(self, command: bytes, path: bytes, version: bytes) -> None:
-        # this method is called by the Channel once the full request has been
-        # received, to dispatch the request to a resource.
-        # We can use it to set the IP address and protocol according to the
-        # headers.
         self._process_forwarded_headers()
         return super().requestReceived(command, path, version)
 
@@ -555,21 +502,14 @@ class XForwardedForRequest(SynapseRequest):
         if not headers:
             return
 
-        # for now, we just use the first x-forwarded-for header. Really, we ought
-        # to start from the client IP address, and check whether it is trusted; if it
-        # is, work backwards through the headers until we find an untrusted address.
-        # see https://github.com/matrix-org/synapse/issues/9471
         self._forwarded_for = _XForwardedForAddress(
             headers[0].split(b",")[0].strip().decode("ascii")
         )
 
-        # if we got an x-forwarded-for header, also look for an x-forwarded-proto header
         header = self.getHeader(b"x-forwarded-proto")
         if header is not None:
             self._forwarded_https = header.lower() == b"https"
         else:
-            # this is done largely for backwards-compatibility so that people that
-            # haven't set an x-forwarded-proto header don't get a redirect loop.
             logger.warning(
                 "forwarded request lacks an x-forwarded-proto header: assuming https"
             )

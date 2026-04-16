@@ -1,17 +1,3 @@
-# Copyright 2022 The Matrix.org Foundation C.I.C.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 import logging
 import time
 from selectors import SelectSelector, _PollLikeSelector  # type: ignore[attr-defined]
@@ -51,9 +37,6 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-#
-# Twisted reactor metrics
-#
 
 tick_time = Histogram(
     "python_twisted_reactor_tick_time",
@@ -70,9 +53,6 @@ class CallWrapper:
         self._wrapped = wrapped
 
     def __call__(self, *args, **kwargs) -> Any:  # type: ignore[no-untyped-def]
-        # record the time since this was last called. This gives a good proxy for
-        # how long it takes to run everything in the reactor - ie, how long anything
-        # waiting for the next tick will have to wait.
         tick_time.observe(time.time() - self.last_polled)
 
         ret = self._wrapped(*args, **kwargs)
@@ -115,29 +95,23 @@ class ReactorLastSeenMetric(Collector):
         yield cm
 
 
-# Twisted has already select a reasonable reactor for us, so assumptions can be
-# made about the shape.
 wrapper = None
 try:
     if isinstance(reactor, (PollReactor, EPollReactor)):
-        reactor._poller = ObjWrapper(reactor._poller, "poll")  # type: ignore[attr-defined]
-        wrapper = reactor._poller._wrapped_method  # type: ignore[attr-defined]
+        reactor._poller = ObjWrapper(reactor._poller, "poll")  
+        wrapper = reactor._poller._wrapped_method  
 
     elif isinstance(reactor, selectreactor.SelectReactor):
-        # Twisted uses a module-level _select function.
         wrapper = selectreactor._select = CallWrapper(selectreactor._select)
 
     elif isinstance(reactor, AsyncioSelectorReactor):
-        # For asyncio look at the underlying asyncio event loop.
         asyncio_loop = reactor._asyncioEventloop  # A sub-class of BaseEventLoop,
 
-        # A sub-class of BaseSelector.
         selector = asyncio_loop._selector  # type: ignore[attr-defined]
 
         if isinstance(selector, SelectSelector):
             wrapper = selector._select = CallWrapper(selector._select)  # type: ignore[attr-defined]
 
-        # poll, epoll, and /dev/poll.
         elif isinstance(selector, _PollLikeSelector):
             selector._selector = ObjWrapper(selector._selector, "poll")  # type: ignore[attr-defined]
             wrapper = selector._selector._wrapped_method  # type: ignore[attr-defined]
@@ -147,7 +121,6 @@ try:
             wrapper = selector._selector._wrapped_method  # type: ignore[attr-defined]
 
         else:
-            # E.g. this does not support the (Windows-only) ProactorEventLoop.
             logger.warning(
                 "Skipping configuring ReactorLastSeenMetric: unexpected asyncio loop selector: %r via %r",
                 selector,

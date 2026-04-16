@@ -1,17 +1,3 @@
-# Copyright 2018-2021 The Matrix.org Foundation C.I.C.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 import abc
 import logging
 import os
@@ -96,16 +82,11 @@ class StorageProviderWrapper(StorageProvider):
             return None
 
         if file_info.url_cache:
-            # The URL preview cache is short lived and not worth offloading or
-            # backing up.
             return None
 
         if self.store_synchronous:
-            # store_file is supposed to return an Awaitable, but guard
-            # against improper implementations.
             await maybe_awaitable(self.backend.store_file(path, file_info))  # type: ignore
         else:
-            # TODO: Handle errors.
             async def store() -> None:
                 try:
                     return await maybe_awaitable(
@@ -119,12 +100,8 @@ class StorageProviderWrapper(StorageProvider):
     @trace_with_opname("StorageProviderWrapper.fetch")
     async def fetch(self, path: str, file_info: FileInfo) -> Optional[Responder]:
         if file_info.url_cache:
-            # Files in the URL preview cache definitely aren't stored here,
-            # so avoid any potentially slow I/O or network access.
             return None
 
-        # store_file is supposed to return an Awaitable, but guard
-        # against improper implementations.
         return await maybe_awaitable(self.backend.fetch(path, file_info))
 
 
@@ -154,7 +131,6 @@ class FileStorageProviderBackend(StorageProvider):
         dirname = os.path.dirname(backup_fname)
         os.makedirs(dirname, exist_ok=True)
 
-        # mypy needs help inferring the type of the second parameter, which is generic
         shutil_copyfile: Callable[[str, str], str] = shutil.copyfile
         with start_active_span("shutil_copyfile"):
             await defer_to_thread(

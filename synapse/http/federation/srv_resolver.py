@@ -1,18 +1,3 @@
-# Copyright 2014-2016 OpenMarket Ltd
-# Copyright 2019 New Vector Ltd
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 import logging
 import random
 import time
@@ -65,16 +50,9 @@ def _sort_server_list(server_list: List[Server]) -> List[Server]:
     for priority in sorted(priority_map):
         servers = priority_map[priority]
 
-        # This algorithms roughly follows the algorithm described in RFC2782,
-        # changed to remove an off-by-one error.
-        #
-        # N.B. Weights can be zero, which means that they should be picked
-        # rarely.
-
+        
         total_weight = sum(s.weight for s in servers)
 
-        # Total weight can become zero if there are only zero weight servers
-        # left, which we handle by just shuffling and appending to the results.
         while servers and total_weight:
             target_weight = random.randint(1, total_weight)
 
@@ -142,15 +120,10 @@ class SrvResolver:
                 self._dns_client.lookupService(service_name)
             )
         except DNSNameError:
-            # TODO: cache this. We can get the SOA out of the exception, and use
-            # the negative-TTL value.
             return []
         except DNSNotImplementedError:
-            # For .onion homeservers this is unavailable, just fallback to host:8448
             return []
         except DomainError as e:
-            # We failed to resolve the name (other than a NameError)
-            # Try something in the cache, else rereaise
             cache_entry = self._cache.get(service_name, None)
             if cache_entry:
                 logger.warning(

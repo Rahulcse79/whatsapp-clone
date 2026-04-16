@@ -1,17 +1,3 @@
-# Copyright 2014-2016 OpenMarket Ltd
-# Copyright 2018-2021 The Matrix.org Foundation C.I.C.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 import errno
 import logging
 import os
@@ -65,11 +51,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# How often to run the background job to update the "recently accessed"
-# attribute of local and remote media.
 UPDATE_RECENTLY_ACCESSED_TS = 60 * 1000  # 1 minute
-# How often to run the background job to check for local and remote media
-# that should be purged according to the configured media retention settings.
 MEDIA_RETENTION_CHECK_PERIOD_MS = 60 * 60 * 1000  # 1 hour
 
 
@@ -104,8 +86,6 @@ class MediaRepository:
         )
         self.prevent_media_downloads_from = hs.config.media.prevent_media_downloads_from
 
-        # List of StorageProviders where we should search for media and
-        # potentially upload to.
         storage_providers = []
 
         for (
@@ -130,7 +110,6 @@ class MediaRepository:
             self._start_update_recently_accessed, UPDATE_RECENTLY_ACCESSED_TS
         )
 
-        # Media retention configuration options
         self._media_retention_local_media_lifetime_ms = (
             hs.config.media.media_retention_local_media_lifetime_ms
         )
@@ -138,13 +117,10 @@ class MediaRepository:
             hs.config.media.media_retention_remote_media_lifetime_ms
         )
 
-        # Check whether local or remote media retention is configured
         if (
             hs.config.media.media_retention_local_media_lifetime_ms is not None
             or hs.config.media.media_retention_remote_media_lifetime_ms is not None
         ):
-            # Run the background job to apply media retention rules routinely,
-            # with the duration between runs dictated by the homeserver config.
             self.clock.looping_call(
                 self._start_apply_media_retention_rules,
                 MEDIA_RETENTION_CHECK_PERIOD_MS,
@@ -376,7 +352,6 @@ class MediaRepository:
         """
         wait_until = self.clock.time_msec() + max_timeout_ms
         while True:
-            # Get the info for the media
             media_info = await self.store.get_local_media(media_id)
             if not media_info:
                 logger.info("Media %s is unknown", media_id)
@@ -388,11 +363,9 @@ class MediaRepository:
                 respond_404(request)
                 return None
 
-            # The file has been uploaded, so stop looping
             if media_info.media_length is not None:
                 return media_info
 
-            # Check if the media ID has expired and still hasn't been uploaded to.
             now = self.clock.time_msec()
             expired_time_ms = now - self.unused_expiration_time
             if media_info.created_ts < expired_time_ms:
@@ -478,25 +451,18 @@ class MediaRepository:
         ):
             raise FederationDeniedError(server_name)
 
-        # Don't let users download media from domains listed in the config, even
-        # if we might have the media to serve. This is Trust & Safety tooling to
-        # block some servers' media from being accessible to local users.
-        # See `prevent_media_downloads_from` config docs for more info.
         if server_name in self.prevent_media_downloads_from:
             respond_404(request)
             return
 
         self.mark_recently_accessed(server_name, media_id)
 
-        # We linearize here to ensure that we don't try and download remote
-        # media multiple times concurrently
         key = (server_name, media_id)
         async with self.remote_media_linearizer.queue(key):
             responder, media_info = await self._get_remote_media_impl(
                 server_name, media_id, max_timeout_ms
             )
 
-        # We deliberately stream the file outside the lock
         if responder and media_info:
             upload_name = name if name else media_info.upload_name
             await respond_with_responder(
@@ -530,15 +496,12 @@ class MediaRepository:
         ):
             raise FederationDeniedError(server_name)
 
-        # We linearize here to ensure that we don't try and download remote
-        # media multiple times concurrently
         key = (server_name, media_id)
         async with self.remote_media_linearizer.queue(key):
             responder, media_info = await self._get_remote_media_impl(
                 server_name, media_id, max_timeout_ms
             )
 
-        # Ensure we actually use the responder so that it releases resources
         if responder:
             with responder:
                 pass
@@ -563,11 +526,6 @@ class MediaRepository:
         """
         media_info = await self.store.get_cached_remote_media(server_name, media_id)
 
-        # file_id is the ID we use to track the file locally. If we've already
-        # seen the file then reuse the existing ID, otherwise generate a new
-        # one.
-
-        # If we have an entry in the DB, try and look for it
         if media_info:
             file_id = media_info.filesystem_id
             file_info = FileInfo(server_name, file_id)
@@ -585,7 +543,6 @@ class MediaRepository:
             if responder:
                 return responder, media_info
 
-        # Failed to find the file anywhere, lets download it.
 
         try:
             media_info = await self._download_remote_file(
@@ -594,8 +551,6 @@ class MediaRepository:
         except SynapseError:
             raise
         except Exception as e:
-            # An exception may be because we downloaded media in another
-            # process, so let's check if we magically have the media.
             media_info = await self.store.get_cached_remote_media(server_name, media_id)
             if not media_info:
                 raise e
@@ -605,12 +560,6 @@ class MediaRepository:
             media_info = attr.evolve(media_info, media_type="application/octet-stream")
         file_info = FileInfo(server_name, file_id)
 
-        # We generate thumbnails even if another process downloaded the media
-        # as a) it's conceivable that the other download request dies before it
-        # generates thumbnails, but mainly b) we want to be sure the thumbnails
-        # have finished being generated before responding to the client,
-        # otherwise they'll request thumbnails and get a 404 if they're not
-        # ready yet.
         await self._generate_thumbnails(
             server_name, media_id, file_id, media_info.media_type
         )
@@ -695,16 +644,6 @@ class MediaRepository:
             upload_name = get_filename_from_headers(headers)
             time_now_ms = self.clock.time_msec()
 
-            # Multiple remote media download requests can race (when using
-            # multiple media repos), so this may throw a violation constraint
-            # exception. If it does we'll delete the newly downloaded file from
-            # disk (as we're in the ctx manager).
-            #
-            # However: we've already called `finish()` so we may have also
-            # written to the storage providers. This is preferable to the
-            # alternative where we call `finish()` *after* this, where we could
-            # end up having an entry in the DB but fail to write the files to
-            # the storage providers.
             await self.store.store_cached_remote_media(
                 origin=server_name,
                 media_id=media_id,
@@ -837,7 +776,6 @@ class MediaRepository:
 
             return output_path
 
-        # Could not generate thumbnail.
         return None
 
     async def generate_remote_exact_thumbnail(
@@ -915,7 +853,6 @@ class MediaRepository:
 
             return output_path
 
-        # Could not generate thumbnail.
         return None
 
     @trace
@@ -979,9 +916,6 @@ class MediaRepository:
                 m_width, m_height = await defer_to_thread(
                     self.hs.get_reactor(), thumbnailer.transpose
                 )
-
-            # We deduplicate the thumbnail sizes by ignoring the cropped versions if
-            # they have the same dimensions of a scaled one.
             thumbnails: Dict[Tuple[int, int, str], str] = {}
             for requirement in requirements:
                 if requirement.method == "crop":
@@ -1051,19 +985,7 @@ class MediaRepository:
 
                     t_len = os.path.getsize(fname)
 
-                    # Write to database
                     if server_name:
-                        # Multiple remote media download requests can race (when
-                        # using multiple media repos), so this may throw a violation
-                        # constraint exception. If it does we'll delete the newly
-                        # generated thumbnail from disk (as we're in the ctx
-                        # manager).
-                        #
-                        # However: we've already called `finish()` so we may have
-                        # also written to the storage providers. This is preferable
-                        # to the alternative where we call `finish()` *after* this,
-                        # where we could end up having an entry in the DB but fail
-                        # to write the files to the storage providers.
                         try:
                             await self.store.store_remote_media_thumbnail(
                                 server_name,
@@ -1099,10 +1021,7 @@ class MediaRepository:
         Purge old local and remote media according to the media retention rules
         defined in the homeserver config.
         """
-        # Purge remote media
         if self._media_retention_remote_media_lifetime_ms is not None:
-            # Calculate a threshold timestamp derived from the configured lifetime. Any
-            # media that has not been accessed since this timestamp will be removed.
             remote_media_threshold_timestamp_ms = (
                 self.clock.time_msec() - self._media_retention_remote_media_lifetime_ms
             )
@@ -1116,9 +1035,7 @@ class MediaRepository:
                 before_ts=remote_media_threshold_timestamp_ms
             )
 
-        # And now do the same for local media
         if self._media_retention_local_media_lifetime_ms is not None:
-            # This works the same as the remote media threshold
             local_media_threshold_timestamp_ms = (
                 self.clock.time_msec() - self._media_retention_local_media_lifetime_ms
             )
@@ -1146,8 +1063,6 @@ class MediaRepository:
             key = (origin, media_id)
 
             logger.info("Deleting: %r", key)
-
-            # TODO: Should we delete from the backup store
 
             async with self.remote_media_linearizer.queue(key):
                 full_path = self.filepaths.remote_media_filepath(origin, file_id)

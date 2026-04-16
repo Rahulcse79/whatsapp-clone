@@ -1,16 +1,3 @@
-# Copyright 2018-2021 The Matrix.org Foundation C.I.C.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 import contextlib
 import logging
 import os
@@ -149,12 +136,9 @@ class MediaStorage:
             with open(fname, "wb") as f:
 
                 async def finish() -> None:
-                    # When someone calls finish, we assume they are done writing to the main media repo
                     main_media_repo_write_trace_scope.__exit__(None, None, None)
 
                     with start_active_span("writing to other storage providers"):
-                        # Ensure that all writes have been flushed and close the
-                        # file.
                         f.flush()
                         f.close()
 
@@ -163,11 +147,6 @@ class MediaStorage:
                         )
                         if spam_check != self._spam_checker_module_callbacks.NOT_SPAM:
                             logger.info("Blocking media due to spam checker")
-                            # Note that we'll delete the stored media, due to the
-                            # try/except below. The media also won't be stored in
-                            # the DB.
-                            # We currently ignore any additional field returned by
-                            # the spam-check API.
                             raise SpamMediaException(errcode=spam_check[0])
 
                         for provider in self.storage_providers:
@@ -207,7 +186,6 @@ class MediaStorage:
         """
         paths = [self._file_info_to_path(file_info)]
 
-        # fallback for remote thumbnails with no method in the filename
         if file_info.thumbnail and file_info.server_name:
             paths.append(
                 self.filepaths.remote_media_thumbnail_rel_legacy(
@@ -252,8 +230,6 @@ class MediaStorage:
         if os.path.exists(local_path):
             return local_path
 
-        # Fallback for paths without method names
-        # Should be removed in the future
         if file_info.thumbnail and file_info.server_name:
             legacy_path = self.filepaths.remote_media_thumbnail_rel_legacy(
                 server_name=file_info.server_name,
@@ -394,5 +370,4 @@ class ReadableFileWrapper:
 
                 callback(chunk)
 
-                # We yield to the reactor by sleeping for 0 seconds.
                 await self.clock.sleep(0)

@@ -1,17 +1,3 @@
-# Copyright 2014-2016 OpenMarket Ltd
-# Copyright 2018 New Vector Ltd
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 import logging
 import urllib.parse
 from http import HTTPStatus
@@ -92,21 +78,8 @@ incoming_responses_counter = Counter(
     "synapse_http_client_responses", "", ["method", "code"]
 )
 
-# the type of the headers map, to be passed to the t.w.h.Headers.
-#
-# The actual type accepted by Twisted is
-#   Mapping[Union[str, bytes], Sequence[Union[str, bytes]] ,
-# allowing us to mix and match str and bytes freely. However: any str is also a
-# Sequence[str]; passing a header string value which is a
-# standalone str is interpreted as a sequence of 1-codepoint strings. This is a disastrous footgun.
-# We use a narrower value type (RawHeaderValue) to avoid this footgun.
-#
-# We also simplify the keys to be either all str or all bytes. This helps because
-# Dict[K, V] is invariant in K (and indeed V).
 RawHeaders = Union[Mapping[str, "RawHeaderValue"], Mapping[bytes, "RawHeaderValue"]]
 
-# the value actually has to be a List, but List is invariant so we can't specify that
-# the entries can either be Lists or bytes.
 RawHeaderValue = Union[
     StrSequence,
     List[bytes],
