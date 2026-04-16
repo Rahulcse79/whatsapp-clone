@@ -1,17 +1,12 @@
-# Documentation for possible options in this file is at
-# https://rust-lang.github.io/mdBook/format/config.html
 [book]
 title = "Synapse"
 authors = ["The Matrix.org Foundation C.I.C."]
 language = "en"
 multilingual = false
 
-# The directory that documentation files are stored in
 src = "docs"
 
 [build]
-# Prevent markdown pages from being automatically generated when they're
-# linked to in SUMMARY.md
 create-missing = false
 
 [output.html]

@@ -1,5 +1,3 @@
-# A build script for poetry that adds the rust extension.
-
 import os
 from typing import Any, Dict
 
@@ -15,8 +13,6 @@ def build(setup_kwargs: Dict[str, Any]) -> None:
         path=cargo_toml_path,
         binding=Binding.PyO3,
         py_limited_api=True,
-        # We force always building in release mode, as we can't tell the
-        # difference between using `poetry` in development vs production.
         debug=False,
     )
     setup_kwargs.setdefault("rust_extensions", []).append(extension)
