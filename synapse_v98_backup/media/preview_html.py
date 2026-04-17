@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import codecs
 import logging
 import re
@@ -205,9 +206,9 @@ def parse_html_to_open_graph(tree: "etree._Element") -> Dict[str, Optional[str]]
         The Open Graph response as a dictionary.
     """
 
- 
+
     og = _get_meta_tags(tree, "property", "og")
-   twitter = _get_meta_tags(tree, "name", "twitter", _map_twitter_to_open_graph)
+    twitter = _get_meta_tags(tree, "name", "twitter", _map_twitter_to_open_graph)
     for key, value in twitter.items():
         if key not in og:
             og[key] = value

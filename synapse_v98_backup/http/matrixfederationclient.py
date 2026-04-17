@@ -1,6 +1,6 @@
 import abc
-import cgi
 import codecs
+from email.message import Message
 import logging
 import random
 import sys
@@ -1524,7 +1524,10 @@ def check_content_type_is(headers: Headers, expected_content_type: str) -> None:
         )
 
     c_type = content_type_headers[0].decode("ascii")  # only the first header
-    val, options = cgi.parse_header(c_type)
+    msg = Message()
+    msg["Content-Type"] = c_type
+    val = msg.get_content_type()
+    options = msg["Content-Type"] and dict(msg.get_params(failobj=[])[1:]) or {}
     if val != expected_content_type:
         raise RequestSendFailed(
             RuntimeError(

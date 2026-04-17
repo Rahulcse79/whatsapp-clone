@@ -99,7 +99,7 @@ class LaterGauge(Collector):
 MetricsEntry = TypeVar("MetricsEntry")
 
 
-class InFlightGauge(Generic[MetricsEntry], Collector):
+class InFlightGauge(Collector, Generic[MetricsEntry]):
     """Tracks number of things (e.g. requests, Measure blocks, etc) in flight
     at any given time.
 
