@@ -1,0 +1,14 @@
+port: 7880
+rtc:
+  port_range_start: 50000
+  port_range_end: 60000
+  use_external_ip: false
+  tcp_port: 7881
+turn:
+  enabled: true
+  udp_port: 3478
+  tls_port: 5349
+keys:
+  devkey: supersecretlivekitkey1234567890ab
+logging:
+  level: info
