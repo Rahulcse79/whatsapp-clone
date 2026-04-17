@@ -12,12 +12,6 @@
 server_name: "localhost"
 public_baseurl: "https://192.168.103.24:8008/"
 serve_server_wellknown: true
-
-extra_well_known_client_content:
-  "org.matrix.msc4143.rtc_foci":
-    - type: "livekit"
-      livekit_service_url: "http://192.168.1.199:8880"
-
 pid_file: /Users/rahulsingh/Documents/GitHub/whatsapp-clone/data/homeserver.pid
 listeners:
   - port: 8008
