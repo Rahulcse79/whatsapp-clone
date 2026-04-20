@@ -33,9 +33,9 @@ database:
     database: "/Users/muskansethi/Documents/GitHub/whatsapp-clone/data/homeserver.db"
 log_config: "/Users/muskansethi/Documents/GitHub/whatsapp-clone/data/localhost.log.config"
 media_store_path: "/Users/muskansethi/Documents/GitHub/whatsapp-clone/data/media_store"
-public_baseurl: "https://192.168.1.180:8480/"
-tls_certificate_path: "/Users/muskansethi/Documents/GitHub/whatsapp-clone/data/certs/synapse-192.168.1.180.crt"
-tls_private_key_path: "/Users/muskansethi/Documents/GitHub/whatsapp-clone/data/certs/synapse-192.168.1.180.key"
+public_baseurl: "https://__LOCAL_IP__:8480/"
+tls_certificate_path: "/Users/muskansethi/Documents/GitHub/whatsapp-clone/data/certs/synapse-__LOCAL_IP__.crt"
+tls_private_key_path: "/Users/muskansethi/Documents/GitHub/whatsapp-clone/data/certs/synapse-__LOCAL_IP__.key"
 registration_shared_secret: "1j;9LkiUO8Y#KF+Szrb#fgflrVjIsMSgvAwR10*,-1j35^OPV^"
 report_stats: false
 macaroon_secret_key: "p7l&:sb&LsU^#S5H6ldU:O00DdniuSpP5h,tysV@^~N.XWW@;v"
@@ -44,7 +44,7 @@ signing_key_path: "/Users/muskansethi/Documents/GitHub/whatsapp-clone/data/local
 trusted_key_servers:
   - server_name: "matrix.org"
 turn_uris:
-  - "turn:192.168.1.180:3478?transport=udp"
+  - "turn:__LOCAL_IP__:3478?transport=udp"
 
 turn_username: "test"
 turn_password: "test123"
