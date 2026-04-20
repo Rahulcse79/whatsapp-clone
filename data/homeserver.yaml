@@ -10,34 +10,37 @@
 # each option, go to docs/usage/configuration/config_documentation.md or
 # https://element-hq.github.io/synapse/latest/usage/configuration/config_documentation.html
 server_name: "localhost"
-pid_file: /data/homeserver.pid
+pid_file: "/Users/muskansethi/Documents/GitHub/whatsapp-clone/data/homeserver.pid"
 listeners:
-  - port: 8008
+  - port: 8480
+    tls: true
+    type: http
+    bind_addresses: ['0.0.0.0']
     resources:
-    - compress: false
-      names:
-      - client
-      - federation
+      - names: [client, federation]
+
+  - port: 8080
     tls: false
     type: http
+    bind_addresses: ['0.0.0.0']
     x_forwarded: true
+    resources:
+      - names: [client, federation]
+        compress: false
 database:
-  name: psycopg2
+  name: sqlite3
   args:
-    user: synapse_user
-    password: synapse_pass
-    database: synapse
-    host: localhost
-    port: 5432
-    cp_min: 5
-    cp_max: 10
-log_config: "/data/localhost.log.config"
-media_store_path: /data/media_store
+    database: "/Users/muskansethi/Documents/GitHub/whatsapp-clone/data/homeserver.db"
+log_config: "/Users/muskansethi/Documents/GitHub/whatsapp-clone/data/localhost.log.config"
+media_store_path: "/Users/muskansethi/Documents/GitHub/whatsapp-clone/data/media_store"
+public_baseurl: "https://192.168.1.180:8480/"
+tls_certificate_path: "/Users/muskansethi/Documents/GitHub/whatsapp-clone/data/certs/synapse-192.168.1.180.crt"
+tls_private_key_path: "/Users/muskansethi/Documents/GitHub/whatsapp-clone/data/certs/synapse-192.168.1.180.key"
 registration_shared_secret: "1j;9LkiUO8Y#KF+Szrb#fgflrVjIsMSgvAwR10*,-1j35^OPV^"
 report_stats: false
 macaroon_secret_key: "p7l&:sb&LsU^#S5H6ldU:O00DdniuSpP5h,tysV@^~N.XWW@;v"
 form_secret: "9+rWa@K~Vj=mPX9P,#Lxs,~Nd43DCf*,K+1OzX&Km5bAQxWWG0"
-signing_key_path: "/data/localhost.signing.key"
+signing_key_path: "/Users/muskansethi/Documents/GitHub/whatsapp-clone/data/localhost.signing.key"
 trusted_key_servers:
   - server_name: "matrix.org"
 turn_uris:
